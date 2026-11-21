@@ -1,5 +1,6 @@
 // Fake game state so the UI runs before the Python bridge exists.
 import type {Character, GameState, Item, Stats} from '../types.js';
+import {SPRITES} from './sprites.js';
 
 const stats = (s: Partial<Stats>): Stats => ({
 	strength: 0,
@@ -17,7 +18,8 @@ const sword: Item = {
 	id: 'sword01',
 	name: 'Rusty Sword',
 	description: 'Seen better days, still pointy.',
-	art: '  /\\\n  ||\n  ||\n -++-\n  ||',
+	art: SPRITES.sword,
+	animation: 'idle',
 	stats: stats({strength: 2}),
 	value: 5,
 };
@@ -27,7 +29,8 @@ const potion: Item = {
 	id: 'potion01',
 	name: 'Red Potion',
 	description: 'Smells like cherries and regret.',
-	art: ' _\n| |\n/ \\\n\\_/',
+	art: SPRITES.potion,
+	animation: 'idle',
 	stats: stats({max_hp: 5}),
 	value: 10,
 };
@@ -37,7 +40,8 @@ const amulet: Item = {
 	id: 'amulet01',
 	name: 'Owl Amulet',
 	description: 'The owl watches. The owl knows.',
-	art: ' .-.\n(o o)\n |=|',
+	art: SPRITES.amulet,
+	animation: 'idle',
 	stats: stats({wisdom: 1, charisma: 1}),
 	value: 25,
 };
@@ -47,7 +51,8 @@ const player: Character = {
 	id: 'player',
 	name: 'You',
 	description: 'A hopeful adventurer.',
-	art: ' o\n/|\\\n/ \\',
+	art: SPRITES.player,
+	animation: 'idle',
 	stats: stats({strength: 12, dexterity: 14, constitution: 12, intelligence: 10, wisdom: 11, charisma: 13, max_hp: 20}),
 	hostile: false,
 	dialogue: [],
@@ -60,7 +65,8 @@ const brena: Character = {
 	id: 'brena',
 	name: 'Brena',
 	description: 'Dwarf cleric. Hums when nervous.',
-	art: ' o\n<|>\n/ \\',
+	art: SPRITES.brena,
+	animation: 'idle',
 	stats: stats({strength: 14, dexterity: 8, constitution: 15, intelligence: 10, wisdom: 15, charisma: 9, max_hp: 24}),
 	hostile: false,
 	dialogue: ['Stay behind me, lad.'],
@@ -73,7 +79,8 @@ const goblin: Character = {
 	id: 'goblin01',
 	name: 'Goblin',
 	description: 'Small, green, very interested in your pockets.',
-	art: ' ,   ,\n(o\\_/o)\n \\ ^ /\n/|===|\\\n /   \\',
+	art: SPRITES.goblin,
+	animation: 'idle',
 	stats: stats({strength: 8, dexterity: 14, max_hp: 7}),
 	hostile: true,
 	dialogue: ['Shiny! Give!'],
@@ -86,7 +93,8 @@ const merchant: Character = {
 	id: 'merchant01',
 	name: 'Old Merchant',
 	description: 'Sells things. Mostly junk.',
-	art: '  ___\n (o o)\n__\\=/__\n| [$] |\n |   |',
+	art: SPRITES.merchant,
+	animation: 'idle',
 	stats: stats({charisma: 14, max_hp: 6}),
 	hostile: false,
 	dialogue: ['Wares! Fine wares!'],
@@ -99,7 +107,8 @@ const chestKey: Item = {
 	id: 'key01',
 	name: 'Brass Key',
 	description: 'Opens something, somewhere.',
-	art: ' _\n(_)=+=',
+	art: SPRITES.key,
+	animation: 'idle',
 	stats: stats({}),
 	value: 1,
 };

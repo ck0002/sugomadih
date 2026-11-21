@@ -7,13 +7,19 @@ export type Camera = {x: number; y: number; dirX: number; dirY: number};
 export type Sprite = {
 	x: number; // world position (tile centre = n + 0.5)
 	y: number;
-	art: string; // ASCII art, spaces are transparent
+	art: string; // current animation frame; spaces around the drawing are transparent
+	artWidth: number; // size of the biggest frame, so scaling stays steady while animating
+	artHeight: number;
 	glyph: string; // drawn instead of the art when far away
 	color: string;
 	height: number; // in world units, 1 = wall height
 };
 
-const PLANE = Math.tan((66 / 2) * (Math.PI / 180)); // 66° field of view
+// Horizontal field of view adapts to the view's shape, clamped between these.
+const MIN_PLANE = Math.tan((60 / 2) * (Math.PI / 180));
+const MAX_PLANE = Math.tan((90 / 2) * (Math.PI / 180));
+// Sprites are sized as if they were this much further away, so they don't balloon when you walk up to them.
+const SPRITE_DISTANCE_BIAS = 0.5;
 const CHAR_ASPECT = 2; // a terminal cell is about twice as tall as it is wide
 const MAX_ART_SCALE = 3; // stop tiny art from turning into giant blobs up close
 
@@ -27,9 +33,12 @@ export function renderScene(tiles: string[], cam: Camera, sprites: Sprite[], wid
 	const grid: Cell[][] = Array.from({length: H}, () => Array.from({length: W}, () => ({char: ' '})));
 	const zBuffer = new Array<number>(W).fill(Infinity);
 
-	const planeX = -cam.dirY * PLANE; // camera plane points to the right of the view direction
-	const planeY = cam.dirX * PLANE;
-	const scale = W / (2 * PLANE * CHAR_ASPECT); // world units -> rows at distance 1
+	// Pick the field of view so a wall 1 tile away is about as tall as the view.
+	// Wide terminals get a wider FOV; if that's still not enough, squash vertically so nothing up close goes off-screen.
+	const plane = Math.min(MAX_PLANE, Math.max(MIN_PLANE, W / (2 * CHAR_ASPECT * H)));
+	const planeX = -cam.dirY * plane; // camera plane points to the right of the view direction
+	const planeY = cam.dirX * plane;
+	const scale = Math.min(W / (2 * plane * CHAR_ASPECT), H); // world units -> rows at distance 1
 	const horizon = H / 2;
 	const tileAt = (x: number, y: number) => tiles[Math.floor(y)]?.[Math.floor(x)];
 	const rayDir = (col: number) => {
@@ -99,17 +108,20 @@ export function renderScene(tiles: string[], cam: Camera, sprites: Sprite[], wid
 
 	for (const {s, tx, depth} of placed) {
 		const screenX = (W / 2) * (1 + tx / depth);
-		const floorRow = horizon + (0.5 * scale) / depth;
-		const rows = (s.height * scale) / depth;
+		const floorRow = Math.min(H, horizon + (0.5 * scale) / depth); // feet; never below the view
+		const rows = (s.height * scale) / (depth + SPRITE_DISTANCE_BIAS);
 		const put = (px: number, py: number, char: string) => {
 			if (px < 0 || px >= W || py < 0 || py >= H || depth >= zBuffer[px]!) return;
 			grid[py]![px] = {char, color: s.color, dim: depth > 8};
 		};
 
 		const lines = s.art.split('\n');
-		const artH = lines.length;
-		const artW = Math.max(...lines.map(l => l.length));
-		const artScale = Math.min(MAX_ART_SCALE, rows / artH);
+		const artH = s.artHeight;
+		const artW = s.artWidth;
+		// Whole-number scales keep ASCII art crisp (every character repeated the same number of times).
+		// Also step down until the whole sprite fits between the top of the view and its feet.
+		const rawScale = Math.min(MAX_ART_SCALE, rows / artH, floorRow / artH);
+		const artScale = rawScale >= 1 ? Math.floor(rawScale) : rawScale;
 
 		if (artScale < 0.75 || artW === 0) {
 			put(Math.floor(screenX), Math.round(floorRow - Math.max(1, rows) / 2), s.glyph);
@@ -118,7 +130,7 @@ export function renderScene(tiles: string[], cam: Camera, sprites: Sprite[], wid
 		const outH = Math.round(artH * artScale);
 		const outW = Math.round(artW * artScale);
 		const left = Math.round(screenX - outW / 2);
-		const topRow = Math.round(floorRow - outH);
+		const topRow = Math.round(floorRow - outH) + Math.round((artH - lines.length) * artScale); // short frames stand on the floor
 		for (let oy = 0; oy < outH; oy++) {
 			const line = lines[Math.floor(oy / artScale)] ?? '';
 			// Spaces outside the drawing are transparent, spaces inside it are solid.

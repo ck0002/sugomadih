@@ -34,6 +34,7 @@ export type Character = EntityBase & {
 	dialogue: string[];
 	inventory: Item[];
 	hp: number;
+	total_stats: Stats; // stats + buffs from carried items (computed by Python)
 };
 
 export type Entity = Item | Character;
@@ -44,18 +45,19 @@ export type Placement = {id: string; x: number; y: number; facing?: Direction};
 
 export type MapState = {
 	name: string;
+	theme: string; // look of the room, see view3d/themes.ts
 	tiles: string[]; // one string per row
 	placements: Placement[]; // where entities stand on the map
 };
 
 export type GameState = {
+	room: number; // how many rooms deep we are
 	party: Character[]; // party[0] is the player
 	entities: Record<string, Entity>; // everything on the map, by id
 	map: MapState;
 };
 
-// What the UI sends back when the player does something.
-// Later this goes to the Python engine; for now App just shows it.
+// What the UI sends to the Python engine when the player does something (engine/game.py handle()).
 export type Action =
 	| {type: 'move'; dir: 'forward' | 'back'}
 	| {type: 'turn'; dir: 'left' | 'right'}

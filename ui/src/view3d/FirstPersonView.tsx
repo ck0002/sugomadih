@@ -5,6 +5,7 @@ import {DIR_VECTORS, playerPlacement} from '../state.js';
 import type {GameState} from '../types.js';
 import {entityGlyph} from '../map/glyphs.js';
 import {renderScene, type Sprite} from './raycast.js';
+import {themeFor} from './themes.js';
 
 type Props = {state: GameState; width: number; height: number};
 
@@ -15,7 +16,7 @@ export function FirstPersonView({state, width, height}: Props) {
 		const player = playerPlacement(state);
 		const [dirX, dirY] = DIR_VECTORS[player.facing ?? 'N'];
 		const camera = {x: player.x + 0.5, y: player.y + 0.5, dirX, dirY};
-		return renderScene(state.map.tiles, camera, spritesFrom(state, player.id, tick), width, height);
+		return renderScene(state.map.tiles, camera, spritesFrom(state, player.id, tick), width, height, themeFor(state.map.theme));
 	}, [state, width, height, tick]);
 
 	return <CellGrid grid={grid} />;

@@ -6,6 +6,7 @@ export const TILE_GLYPHS: Record<string, Cell> = {
 	'#': {char: '#', color: 'gray'},
 	'.': {char: '·', dim: true},
 	'+': {char: '+', color: 'yellow'},
+	'>': {char: '>', color: 'magentaBright'},
 	'~': {char: '~', color: 'blue'},
 	' ': {char: ' '},
 };

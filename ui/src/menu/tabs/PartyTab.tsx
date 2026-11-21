@@ -27,8 +27,8 @@ function PartyTab({state, isActive, dispatch}: TabProps) {
 					<Box flexDirection="column" flexShrink={1}>
 						<Text bold>{member.name}</Text>
 						<Text dimColor>{member.description}</Text>
-						<HpBar hp={member.hp} max={member.stats.max_hp} />
-						<StatBlock stats={member.stats} />
+						<HpBar hp={member.hp} max={member.total_stats.max_hp} />
+						<StatBlock stats={member.total_stats} />
 					</Box>
 				</>
 			)}

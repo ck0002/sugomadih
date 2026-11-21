@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from engine.models.entity import Entity
+from engine.models.entity import Entity, to_json
 from engine.models.item import Item
 from engine.models.stats import Stats
 
@@ -28,3 +28,7 @@ class Character(Entity):
     @property
     def is_alive(self) -> bool:
         return self.hp > 0
+
+    def to_dict(self) -> dict:
+        # The UI shows totals (base + item buffs) and can't compute them itself.
+        return {**super().to_dict(), "total_stats": to_json(self.total_stats())}

@@ -1,5 +1,6 @@
 import {useState} from 'react';
-import {Box, Text, useInput} from 'ink';
+import {Box, Text} from 'ink';
+import {usePress} from '../input/keys.js';
 import {Panel} from '../components/Panel.js';
 import type {Action, GameState} from '../types.js';
 import {TABS} from './tabs/index.js';
@@ -14,7 +15,7 @@ type Props = {
 export function MenuBox({state, dispatch, height}: Props) {
 	const [active, setActive] = useState(0);
 
-	useInput((_input, key) => {
+	usePress((_input, key) => {
 		if (key.leftArrow) setActive(i => (i - 1 + TABS.length) % TABS.length);
 		if (key.rightArrow) setActive(i => (i + 1) % TABS.length);
 	});

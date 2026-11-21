@@ -1,4 +1,5 @@
-import {Box, Text, useInput} from 'ink';
+import {Box, Text} from 'ink';
+import {usePress} from '../input/keys.js';
 import {Panel} from '../components/Panel.js';
 import {useTick} from '../render/animation.js';
 import {useTypewriter} from '../render/useTypewriter.js';
@@ -49,7 +50,7 @@ function Speaking({room, roomName, text, onContinue}: {room: number; roomName: s
 	const tick = useTick();
 	const {shown, done, skip} = useTypewriter(text, useTypingCps());
 
-	useInput((input, key) => {
+	usePress((input, key) => {
 		if (!(key.return || input === ' ')) return;
 		if (done) onContinue();
 		else skip();

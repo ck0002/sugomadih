@@ -63,7 +63,7 @@ DnLLM/
 │       ├── movement.py       step/turn, walls, bump, pick up items, reach exit, attack animation when adjacent
 │       └── (planned)         dice, combat, checks, loot
 └── ui/                       React + Ink terminal UI (TypeScript, Ink 8, React 19)
-    ├── package.json          npm run dev / npm run typecheck
+    ├── package.json          npm run dev / npm run typecheck / npm test (node:test via tsx, *.test.ts)
     └── src/
         ├── index.tsx         render() in alternate screen; SettingsProvider + AnimationClock; q quits
         ├── paths.ts          REPO_ROOT
@@ -72,8 +72,12 @@ DnLLM/
         ├── state.ts          read-only GameState helpers (playerPlacement, entityAt, tileAhead, directions)
         ├── bridge/
         │   └── useEngine.ts  spawns `uv run python -m engine.server`, JSON lines; returns {state, narration, narrating, message, loading, dispatch}
+        ├── input/            KEYBOARD: always use these, never Ink's useInput directly
+        │   ├── keys.ts       usePress (ignores key releases), useHoldKeys (movement: steady repeat while held)
+        │   ├── holdRepeat.ts HoldRepeater: pure hold-to-repeat logic (kitty release events or OS-repeat fallback)
+        │   └── holdRepeat.test.ts
         ├── settings/
-        │   └── settings.tsx  Settings (typingSpeed, gmIntro), TYPING_SPEEDS, SettingsProvider/useSettings/useTypingCps, saved to .dnllm-settings.json
+        │   └── settings.tsx  Settings (typingSpeed, gmIntro, moveSpeed, smoothCamera), TYPING_SPEEDS, MOVE_SPEEDS, SettingsProvider/useSettings/useTypingCps, saved to .dnllm-settings.json
         ├── gm/
         │   ├── GameMasterScreen.tsx  full-screen GM card: "thinking" (LLM working, logo on first load) / "speaking" (typed room intro)
         │   └── art.ts        LOGO + hooded GM frames (idle, blink, talking, thinking)
@@ -97,6 +101,7 @@ DnLLM/
         ├── view3d/           first-person 3D view
         │   ├── raycast.ts    pure ASCII raycaster: tiles + camera + sprites + theme -> Cell[][]
         │   ├── themes.ts     theme name (from the LLM) -> wall/door/exit/floor/water colours
+        │   ├── useSmoothCamera.ts  glides the camera between tiles/directions over one movement step
         │   └── FirstPersonView.tsx  turns GameState into camera + sprites, renders the grid
         ├── map/
         │   ├── glyphs.ts     how tiles/entities look on the minimap (TILE_GLYPHS, entityGlyph, player arrows)
@@ -108,7 +113,7 @@ DnLLM/
             └── tabs/         one file per tab; index.ts holds the TABS list
                 ├── FightTab.tsx  pick an attack, see target HP/AC/statuses and how effective it is
                 ├── ItemsTab.tsx (enter: ready weapon / drink potion), PartyTab.tsx, OptionsTab.tsx (New room / Save / Load / Quit)
-                ├── SettingsTab.tsx  enter cycles a setting (typing speed, GM intro)
+                ├── SettingsTab.tsx  enter cycles a setting (typing speed, move speed, smooth camera, GM intro)
                 └── index.ts
 ```
 
@@ -137,6 +142,7 @@ DnLLM/
 | Typing speed options / new setting | `TYPING_SPEEDS` / `Settings` + `DEFAULTS` in `ui/src/settings/settings.tsx`, row in `SettingsTab.tsx` |
 | Game master look / intro screen | `ui/src/gm/art.ts`, `ui/src/gm/GameMasterScreen.tsx` |
 | How combat is narrated | `SYSTEM_PROMPT` / `narrate()` in `engine/llm/narrator.py` |
+| Movement feel (step rate, hold detection) | `MOVE_SPEEDS` in `settings.tsx`; `MIN_RELEASE_MS` etc. in `ui/src/input/holdRepeat.ts`; bindings in `useHoldKeys` call in `App.tsx` |
 | Animation speed | `FPS` in `ui/src/render/animation.tsx` |
 | LLM model or server flags | `scripts/llm-server.sh` |
 
@@ -155,6 +161,18 @@ DnLLM/
 - Before every room: the GM "thinking" screen while the LLM builds it (the DnLLM logo on first load), then the GM "speaking" screen types the room narration. Enter skips the typing, and Enter again enters the room. It can be turned off in Settings.
 - During play, the Game Master panel types the latest narration. After every action with combat, the server hands that turn's combat events to the narrator thread, which asks the LLM for a 1–2 sentence retelling (offline: the raw events). Only the newest one is shown, and a new room cancels any narration still pending.
 - The typing speed (slow 25 / normal 50 / fast 110 cps / instant) applies to all typing animations and is set in the SETTINGS tab.
+
+### Input and movement
+
+- Terminals don't normally report key releases: holding a key gives one press, then nothing for the OS repeat delay (~0.5 s), then fast repeats. Acting on every event causes freeze-then-race and moves that keep going after release.
+- `index.tsx` turns on the kitty keyboard protocol (`mode: 'auto'`) where the terminal supports it (kitty, Ghostty, WezTerm, iTerm2…), so keys come with press/repeat/release.
+- Movement keys (w/s/a/d) go through `useHoldKeys` -> `HoldRepeater`, which steps at OUR rate (`MOVE_SPEEDS`, 180 ms by default; turning is 1.4×):
+  - with release events: step on press, then every interval until release (linear from the first step);
+  - without them (e.g. Apple Terminal): a tap is exactly one step; a hold is confirmed by the first OS repeat, then steps at our rate and stops when repeats stop (≤150 ms or 2.5× the repeat gap). The first OS repeat delay can't be avoided there.
+- An action is only sent when the previous one has been answered (`busy()` in useEngine), so moves never queue up.
+- `useSmoothCamera` glides the 3D camera over one step (`smoothCamera` setting), so holding a key moves continuously.
+- Every other key handler uses `usePress`, which ignores release events (they'd otherwise act as a second press).
+- Verified timing: kitty mode steps at 0/181/362/547 ms…; fallback at 0, ~500 (OS delay), then every ~180 ms; a tap = 1 move.
 
 ### Combat
 
@@ -177,7 +195,8 @@ DnLLM/
 1. LLM: `./scripts/llm-server.sh` (leave it running; without it the engine falls back to random rooms)
 2. Game: `cd ui && npm run dev` (the UI starts the Python engine itself)
 - Engine alone (debug): `uv run python -m engine.server`, then type action JSON lines. `DNLLM_SEED=1` makes it deterministic, and `DNLLM_LLM_URL` points it at another server.
-- Tests: `uv run pytest -q`. Typecheck UI: `cd ui && npm run typecheck`.
+- Tests: `uv run pytest -q` (engine) and `cd ui && npm test` (UI logic). Typecheck UI: `cd ui && npm run typecheck`.
+- Engine debug log (e.g. every player move): `DNLLM_LOG_LEVEL=DEBUG`, written to `engine.log`.
 
 ## LLM
 
@@ -194,7 +213,7 @@ feature branch ──(fast-forward)──▶ rc ──(merge commit)──▶ ma
 ```
 
 1. **Branch off `rc`** for each feature: `git checkout -b <feature> rc` (e.g. `llm-integration`, `combat`).
-2. **Commit on the feature branch.** Before committing, run `uv run pytest -q` and `cd ui && npm run typecheck`, and update the project structure in this file.
+2. **Commit on the feature branch.** Before committing, run `uv run pytest -q`, `cd ui && npm test` and `npm run typecheck`, and update the project structure in this file.
 3. **Merge the feature into `rc`:** `git checkout rc && git merge --ff-only <feature>`.
 4. **Merge `rc` into `main`** with a merge commit and git's default message ("Merge branch 'rc'"): `git checkout main && git merge --no-edit rc`.
 5. **Push both:** `git push upstream rc main`. The remote is called `upstream`, not `origin`.

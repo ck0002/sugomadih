@@ -2,7 +2,7 @@ import {useApp} from 'ink';
 import {SelectList} from '../../components/SelectList.js';
 import type {MenuTab, TabProps} from '../types.js';
 
-const OPTIONS = ['Save', 'Load', 'Quit'];
+const OPTIONS = ['New room', 'Save', 'Load', 'Quit'];
 
 function OptionsTab({isActive, dispatch}: TabProps) {
 	const {exit} = useApp();

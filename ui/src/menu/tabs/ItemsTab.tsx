@@ -1,5 +1,6 @@
 import {useState} from 'react';
 import {Box, Text} from 'ink';
+import {DamageText} from '../../combat/DamageText.js';
 import {AnimatedArt} from '../../components/AnimatedArt.js';
 import {SelectList} from '../../components/SelectList.js';
 import {StatBlock} from '../../components/StatBlock.js';
@@ -26,8 +27,15 @@ function ItemsTab({state, isActive, dispatch}: TabProps) {
 					<Box flexDirection="column" flexShrink={1}>
 						<Text bold>{item.name}</Text>
 						<Text dimColor>{item.description}</Text>
+						{item.kind === 'weapon' && <DamageText attack={item.attack} types={state.damage_types} />}
+						{item.kind === 'potion' && <Text color="green">Heals {item.heal} hp</Text>}
 						<StatBlock stats={item.stats} buffs />
-						<Text color="yellow">{item.value}g</Text>
+						<Text>
+							<Text color="yellow">{item.value}g</Text>
+							<Text dimColor>
+								{item.kind === 'weapon' ? '   enter: ready (default attack)' : item.kind === 'potion' ? '   enter: drink' : ''}
+							</Text>
+						</Text>
 					</Box>
 				</>
 			)}

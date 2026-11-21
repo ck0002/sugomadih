@@ -1,5 +1,5 @@
 import type {Cell} from '../render/CellGrid.js';
-import type {Direction, Entity} from '../types.js';
+import {isItem, type Direction, type Entity} from '../types.js';
 
 // How map tiles look on the minimap. Add new tile types here.
 export const TILE_GLYPHS: Record<string, Cell> = {
@@ -16,7 +16,7 @@ export const PLAYER_ARROWS: Record<Direction, string> = {N: '▲', E: '►', S: 
 // How entities look on the minimap and in the legend.
 export function entityGlyph(entity: Entity, isPlayer: boolean): Cell {
 	if (isPlayer) return {char: '@', color: 'whiteBright'};
-	if (entity.kind === 'item') return {char: '!', color: 'cyan'};
+	if (isItem(entity)) return {char: entity.kind === 'weapon' ? ')' : '!', color: 'cyan'};
 	const char = entity.name[0]!.toLowerCase();
 	return entity.hostile ? {char, color: 'red'} : {char: char.toUpperCase(), color: 'green'};
 }

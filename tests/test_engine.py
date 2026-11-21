@@ -91,7 +91,7 @@ def test_walking_to_the_exit_makes_a_new_room(seed: int) -> None:
     # Clear the path: remove everything but the player so nothing blocks the walk.
     game.map.placements = [p for p in game.map.placements if p.id == game.player.id]
     for action in actions_to_exit(game):
-        if game.handle(action):
+        if game.handle(action) == "new_room":
             break
     else:
         pytest.fail("never reached the exit")
@@ -121,7 +121,7 @@ def test_state_is_json_ready_for_the_ui() -> None:
     game = make_game()
     game.next_room()
     state = json.loads(json.dumps(game.to_dict()))
-    assert state["party"][0]["inventory"][0]["kind"] == "item"
+    assert [i["kind"] for i in state["party"][0]["inventory"]] == ["weapon", "potion"]
     assert state["map"]["placements"][0]["id"] == "player"
     assert "total_stats" in state["party"][0]
 

@@ -4,6 +4,7 @@ UI -> engine:  {"type": "action", "action": {...}}            (see Action in ui/
 engine -> UI:  {"type": "loading", "message": str}            the LLM is working
                {"type": "state", "state": GameState, "narration": str, "message": str}
                {"type": "error", "message": str}
+When the player dies the engine sends the final state, then starts a new game (loading + state).
 
 stdout is reserved for protocol messages; logs go to stderr (the UI writes them to engine.log).
 Run standalone for debugging: uv run python -m engine.server
@@ -51,10 +52,15 @@ def main() -> None:
             message = json.loads(line)
             if message.get("type") != "action":
                 continue
-            if game.handle(message.get("action", {})):
-                enter_next_room(game)
-            else:
-                send_state(game)
+            match game.handle(message.get("action", {})):
+                case "new_room":
+                    enter_next_room(game)
+                case "game_over":
+                    send_state(game)  # show the final blow
+                    game.reset()
+                    enter_next_room(game)
+                case _:
+                    send_state(game)
         except Exception as e:  # never die on one bad message
             log.exception("failed to handle %r", line)
             send({"type": "error", "message": str(e)})

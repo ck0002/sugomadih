@@ -28,15 +28,16 @@ DnLLM/
 ├── scripts/
 │   └── llm-server.sh         starts llama-server with Qwen3.5 2B on :8080
 ├── tests/
-│   └── test_engine.py        mapgen invariants, LLM plan parsing/fallback, walk-to-exit, pickup, JSON shape
+│   ├── test_engine.py        mapgen invariants, LLM plan parsing/fallback, walk-to-exit, pickup, JSON shape
+│   └── test_combat.py        damage type tree, resistances, crits, statuses, enemy AI, death, potions
 ├── engine/                   Python game logic: all the rules live here
 │   ├── server.py             BRIDGE to the UI: JSON lines over stdin/stdout (protocol in its docstring)
-│   ├── game.py               Game: party, entities, map, next_room() (asks LLM, builds room), handle(action), to_dict()
+│   ├── game.py               Game: party, entities, map, log, next_room(), handle(action) -> ok/new_room/game_over, turn loop, to_dict()
 │   ├── models/               game objects (dataclasses), exported from __init__.py
 │   │   ├── stats.py          Stats: 6 ability scores + max_hp; also used for item buffs; Stats + Stats sums fields
 │   │   ├── entity.py         Entity base: name, description, art (animations), animation, stats, id, play(), to_dict(); to_json()
-│   │   ├── item.py           Item(Entity): stats = buffs to the holder, value (gold)
-│   │   ├── character.py      Character(Entity): NPC or enemy (hostile flag), dialogue, inventory, hp, total_stats()
+│   │   ├── item.py           Item(Entity): stats = buffs, value; Weapon(Item): attack; Potion(Item): heal
+│   │   ├── character.py      Character(Entity): hostile, dialogue, inventory, hp, attacks, resistances, statuses, available_attacks(), armor_class()
 │   │   └── world.py          tile chars (WALL/FLOOR/DOOR/WATER/EXIT), Direction, Placement, MapState
 │   ├── data/
 │   │   ├── catalog.py        EVERYTHING THE LLM CAN SPAWN: ENEMIES, NPCS, ITEMS (Spawnable id+blurb+make), THEMES, LAYOUTS, FEATURES, make_party()
@@ -44,6 +45,14 @@ DnLLM/
 │   ├── llm/
 │   │   ├── client.py         LLMClient protocol, LlamaServerClient (json_schema constrained), RandomLLM (offline/tests), LLMError
 │   │   └── room_director.py  room_schema() + room_prompt() from the catalog, parse_room_plan() validation, RoomDirector (LLM -> fallback)
+│   ├── combat/               FIGHTING
+│   │   ├── damage.py         DamageType (abstract) -> PhysicalDamage/MagicDamage (abstract) -> Sharp, Dull, Piercing, Fire, Water; @register, DAMAGE_TYPES
+│   │   ├── attacks.py        DamageRoll(dice, type id), Attack(name, damage[], stat), attack() shorthand, UNARMED
+│   │   ├── status.py         StatusEffect + bleeding/stunned/burning/soaked
+│   │   ├── resolve.py        resolve_attack() (to-hit, crits, damage per type, resistances, on_hit) + tick_statuses()
+│   │   ├── ai.py             enemy_turns(): tick statuses, attack if adjacent, else step toward the player (AGGRO_RANGE)
+│   │   ├── dice.py           "2d4+1" parsing/rolling, d20
+│   │   └── text.py           log grammar helpers (you are / the Goblin is)
 │   ├── world/
 │   │   ├── mapgen.py         build_room(layout, features, rng): tiles, start, exit, spawn cells (all reachable, one exit)
 │   │   └── spawn.py          populate(plan, room, rng): RoomPlan ids -> entities + placements on free tiles
@@ -60,7 +69,10 @@ DnLLM/
         ├── bridge/
         │   └── useEngine.ts  spawns `uv run python -m engine.server`, JSON lines; returns {state, narration, message, loading, dispatch}
         ├── story/
-        │   └── StoryText.tsx LLM narration for the room, spinner while the next room is generated
+        │   ├── StoryText.tsx LLM narration for the room, spinner while the next room is generated
+        │   └── LogText.tsx   combat/event log under the 3D view (fresh lines bright)
+        ├── combat/
+        │   └── DamageText.tsx  DamageText (coloured "1d6 sharp + 1d4 fire"), Effectiveness (×2 weak), StatusList
         ├── components/       reusable building blocks
         │   ├── Panel.tsx     bordered box with title; every window on screen is a Panel
         │   ├── SelectList.tsx  ↑/↓/enter list used by the menu tabs
@@ -82,7 +94,8 @@ DnLLM/
             ├── MenuBox.tsx   tab bar (←/→) + active tab
             ├── types.ts      MenuTab / TabProps
             └── tabs/         one file per tab; index.ts holds the TABS list
-                ├── ItemsTab.tsx, PartyTab.tsx, OptionsTab.tsx (New room / Save / Load / Quit)
+                ├── FightTab.tsx  pick an attack, see target HP/AC/statuses and how effective it is
+                ├── ItemsTab.tsx (enter: ready weapon / drink potion), PartyTab.tsx, OptionsTab.tsx (New room / Save / Load / Quit)
                 └── index.ts
 ```
 
@@ -93,6 +106,12 @@ DnLLM/
 | New enemy / NPC / item the LLM can spawn | add a `Spawnable` in `engine/data/catalog.py` + its sprite in `engine/data/sprites.py` (schema, prompt and validation update automatically) |
 | New room layout or feature | builder in `engine/world/mapgen.py` (`LAYOUTS` / `FEATURES`) + a blurb in `catalog.py` |
 | New room theme (look) | `THEMES` in `engine/data/catalog.py` + colours in `ui/src/view3d/themes.ts` |
+| New damage type | subclass a category in `engine/combat/damage.py`, set id/name/color/description, implement `on_hit()`, `@register` (the UI picks it up from `damage_types`) |
+| New damage category | subclass `DamageType` as an abstract class (like `MagicDamage`), then add types under it |
+| New status effect | factory in `engine/combat/status.py`, applied from a damage type's `on_hit()` |
+| New weapon / enemy attack / resistances | `_weapon(...)` / `_enemy(..., attacks, resist)` in `engine/data/catalog.py` |
+| Player spells | `attacks=[...]` in `make_party()` in `engine/data/catalog.py` |
+| Enemy behaviour | `engine/combat/ai.py` |
 | What the LLM is told / asked | `SYSTEM_PROMPT`, `room_prompt()`, `room_schema()` in `engine/llm/room_director.py` |
 | New player action | `Action` in `ui/src/types.ts` + `Game.handle()` in `engine/game.py` |
 | Game rules | `engine/rules/` (movement is in `movement.py`) |
@@ -107,12 +126,22 @@ DnLLM/
 
 ### Shared data model
 
+- Item kinds: `item`, `weapon` (`attack`), `potion` (`heal`). In the UI use `isItem(entity)`, not `kind === 'item'`.
 - The map is `tiles: string[]`: `#` wall, `+` door (drawn as wall, can be walked through), `.` floor, `~` water, `>` exit (walking into it makes the next room). `map.theme` picks colours.
 - Entities stand on the map through `placements: {id, x, y, facing?}`. Positions are whole tiles, and facing is `N|E|S|W`.
-- Movement is on the grid: step forward or back, turn 90°. Walking onto an item picks it up. Walking into a character shows a message (enemy blocks, NPC says a dialogue line).
+- Movement is on the grid: step forward or back, turn 90°. Walking onto an item picks it up. Walking into an enemy attacks it; walking into an NPC shows a dialogue line.
 - Sprites: `art` is `{animationName: frames[]}`, where each frame is a multi-line ASCII string. Every entity has `idle`, and `animation` names the one playing now (Python: `entity.play("attack")`). The UI loops frames at 8 fps (16 frames = 2 s), and each entity starts at a different point in its loop based on its id. In 3D, spaces outside the drawing are see-through, and art is scaled by whole numbers (at most 3×) using the size of its biggest frame. Sprites are sized as if they were 0.5 tiles further away (`SPRITE_DISTANCE_BIAS`) and step down a size until they fit on screen. The field of view adapts to the view's shape (60–90°), so things up close never go off-screen.
 - `party[0]` is the player. Party members travel with the player and aren't placed on the map. Characters also carry `total_stats` (base + item buffs) for the UI.
-- GameState = `{room, party, entities, map}` from `Game.to_dict()`.
+- GameState = `{room, party, entities, map, log, log_fresh, damage_types}` from `Game.to_dict()`.
+
+### Combat
+
+- Turn-based. Moving, attacking, picking up and drinking cost a turn; turning, menus and swinging at nothing are free. After the player's turn: player statuses tick, then every hostile ticks its statuses and acts (attacks if adjacent, otherwise steps toward the player within 6 tiles).
+- Attack: `f`, walking into an enemy (both use attack 0 = first weapon), or the FIGHT tab (any weapon or spell). Enter on a weapon in ITEMS readies it (moves it to the front).
+- To hit: d20 + modifier(attack.stat) >= target `armor_class()` (10 + DEX mod - status penalties). A natural 1 misses. A roll >= the type's `crit_from` (20, Piercing 19) hits and doubles the dice.
+- Damage: every `DamageRoll` is rolled, the stat modifier is added once, then each part is multiplied by `DamageType.multiplier(target)`. Resistances use the most specific key along `lineage()` (`dull` beats `physical`), and Piercing can't be resisted. Then `on_hit()` applies the type's effect (bleed, stun, burn, soak).
+- Python sends `damage_types` (name, colour, lineage, description) and each character's `damage_multipliers`, so the UI never hardcodes combat rules.
+- When the player dies, the server sends the final state, then calls `Game.reset()` and builds a new room 1.
 
 ### Engine <-> UI protocol (JSON lines over stdio)
 

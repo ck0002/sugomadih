@@ -1,80 +1,116 @@
-import {Box, Text, useInput, useWindowSize} from 'ink';
+import {useState} from 'react';
+import {Box, useInput, useWindowSize} from 'ink';
 import {useEngine} from './bridge/useEngine.js';
 import {Panel} from './components/Panel.js';
+import {GameMasterScreen} from './gm/GameMasterScreen.js';
+import {StatusBar} from './hud/StatusBar.js';
 import {Minimap} from './map/Minimap.js';
 import {NearbyList} from './map/NearbyList.js';
 import {MenuBox} from './menu/MenuBox.js';
-import {useTick} from './render/animation.js';
+import {useSettings} from './settings/settings.js';
 import {entityAt, tileAhead} from './state.js';
+import {LogText} from './story/LogText.js';
 import {StoryText} from './story/StoryText.js';
 import {FirstPersonView} from './view3d/FirstPersonView.js';
 
-const SIDE_WIDTH = 34;
+const SIDE_WIDTH = 36;
 const PANEL_CHROME_X = 4; // border + padding, left and right
-const PANEL_CHROME_Y = 3; // border top/bottom + title row
+const PANEL_CHROME_Y = 2; // top border (with title) + bottom border
 const MINIMAP_HEIGHT = 9;
+const LOG_LINES = 5;
 
-// Screen layout. Top 3/4: world (3D view + side panels). Bottom 1/4: menu.
+// Flow: game master screen while the LLM builds a room -> game master intro (typed) -> the game.
+// Game layout: top 3/4 is the world (3D view + log, side panels), bottom 1/4 the menu, then the status bar.
 // To add a box, drop another <Panel> into the row or column where you want it.
 export function App() {
 	const {columns, rows} = useWindowSize();
-	const {state, narration, message, loading, dispatch} = useEngine();
+	const {state, narration, narrating, message, loading, dispatch} = useEngine();
+	const {settings} = useSettings();
+	const [introSeen, setIntroSeen] = useState(''); // run:room whose intro was dismissed
+	const roomKey = state ? `${state.run}:${state.room}` : '';
+	const showIntro = Boolean(state && settings.gmIntro && roomKey !== introSeen);
 
 	useInput(input => {
-		if (loading || !state) return; // don't queue moves while the next room is being made
+		if (loading || !state || showIntro) return; // don't queue moves while the next room is being made
 		if (input === 'w') dispatch({type: 'move', dir: 'forward'});
 		if (input === 's') dispatch({type: 'move', dir: 'back'});
 		if (input === 'a') dispatch({type: 'turn', dir: 'left'});
 		if (input === 'd') dispatch({type: 'turn', dir: 'right'});
+		if (input === 'f') dispatch({type: 'attack', attack: 0}); // default attack (first weapon)
 	});
 
-	if (!state) return <LoadingScreen width={columns} height={rows} text={loading ?? message} />;
+	if (!state || loading) {
+		const text = loading ?? message;
+		return <GameMasterScreen mode="thinking" width={columns} height={rows} message={text} showLogo={!state} />;
+	}
+	if (showIntro) {
+		return (
+			<GameMasterScreen
+				mode="speaking"
+				width={columns}
+				height={rows}
+				room={state.room}
+				roomName={state.map.name}
+				text={narration}
+				onContinue={() => setIntroSeen(roomKey)}
+			/>
+		);
+	}
 
 	const menuHeight = Math.max(9, Math.floor(rows / 4));
-	const worldHeight = rows - menuHeight - 1; // 1 = hint line
+	const worldHeight = rows - menuHeight - 1; // 1 = status bar
+	const viewHeight = worldHeight - (LOG_LINES + PANEL_CHROME_Y);
+	const player = state.party[0]!;
+
 	const ahead = tileAhead(state);
 	const facing = entityAt(state, ahead.x, ahead.y);
 	const atExit = state.map.tiles[ahead.y]?.[ahead.x] === '>';
-	const title = `Room ${state.room}: ${state.map.name}` + (facing ? `  ·  ahead: ${facing.name}` : atExit ? '  ·  ahead: exit' : '');
+	const enemyAhead = facing?.kind === 'character' && facing.hostile;
+	const aheadText =
+		facing?.kind === 'character'
+			? `${facing.name} ${facing.hp}/${facing.total_stats.max_hp} hp` + facing.statuses.map(s => ` · ${s.name}`).join('')
+			: facing
+				? facing.name
+				: atExit
+					? 'the exit ▸'
+					: undefined;
 
 	return (
 		<Box width={columns} height={rows} flexDirection="column">
 			<Box height={worldHeight}>
-				<Panel title={title} color="cyan" flexGrow={1}>
-					<FirstPersonView
-						state={state}
-						width={columns - SIDE_WIDTH - PANEL_CHROME_X}
-						height={worldHeight - PANEL_CHROME_Y}
-					/>
-				</Panel>
+				<Box flexDirection="column" flexGrow={1}>
+					<Panel
+						title={`Room ${state.room} · ${state.map.name}`}
+						subtitle={aheadText && `ahead: ${aheadText}`}
+						color={enemyAhead ? 'red' : 'cyan'}
+						titleColor={enemyAhead ? 'redBright' : 'cyanBright'}
+						subtitleColor={enemyAhead ? 'redBright' : atExit ? 'magentaBright' : undefined}
+						height={viewHeight}
+					>
+						<FirstPersonView
+							state={state}
+							width={columns - SIDE_WIDTH - PANEL_CHROME_X}
+							height={viewHeight - PANEL_CHROME_Y}
+						/>
+					</Panel>
+					<Panel title="Log" color="gray" height={LOG_LINES + PANEL_CHROME_Y} flexShrink={0}>
+						<LogText log={state.log} fresh={state.log_fresh} lines={LOG_LINES} />
+					</Panel>
+				</Box>
 				<Box flexDirection="column" width={SIDE_WIDTH} flexShrink={0}>
-					<Panel title="Map" flexShrink={0}>
+					<Panel title="Map" color="blue" titleColor="blueBright" flexShrink={0}>
 						<Minimap state={state} width={SIDE_WIDTH - PANEL_CHROME_X} height={MINIMAP_HEIGHT} />
 					</Panel>
-					<Panel title="Story" color="magenta" flexGrow={1}>
-						<StoryText narration={narration} loading={loading} />
+					<Panel title="Game Master" color="magenta" titleColor="magentaBright" flexGrow={1}>
+						<StoryText narration={narration} narrating={narrating} />
 					</Panel>
-					<Panel title="Nearby" flexShrink={0}>
+					<Panel title="Nearby" color="green" titleColor="greenBright" flexShrink={0}>
 						<NearbyList state={state} />
 					</Panel>
 				</Box>
 			</Box>
 			<MenuBox state={state} dispatch={dispatch} height={menuHeight} />
-			<Text dimColor wrap="truncate">
-				{' w/s move  a/d turn  ←/→ tab  ↑/↓ select  enter use  q quit'}
-				{message && <Text color="yellow">{`   ${message}`}</Text>}
-			</Text>
-		</Box>
-	);
-}
-
-function LoadingScreen({width, height, text}: {width: number; height: number; text: string}) {
-	const tick = useTick();
-	return (
-		<Box width={width} height={height} alignItems="center" justifyContent="center">
-			<Text color="cyan">
-				{'⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'[tick % 10]} {text}
-			</Text>
+			<StatusBar player={player} room={state.room} width={columns} />
 		</Box>
 	);
 }

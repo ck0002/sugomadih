@@ -1,23 +1,25 @@
 import {Box, Text} from 'ink';
 import {useTick} from '../render/animation.js';
+import {useTypewriter} from '../render/useTypewriter.js';
+import {useTypingCps} from '../settings/settings.js';
 
-type Props = {narration: string; loading: string | null};
+type Props = {narration: string; narrating: boolean};
 
-const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
-// The LLM's narration for the current room, or a spinner while it's writing the next one.
-export function StoryText({narration, loading}: Props) {
+// The game master's latest words: room intro, then a retelling after every fight action. Typed out.
+export function StoryText({narration, narrating}: Props) {
 	const tick = useTick();
-	if (loading) {
-		return (
-			<Text color="cyan">
-				{SPINNER[tick % SPINNER.length]} {loading}
-			</Text>
-		);
-	}
+	const {shown, done} = useTypewriter(narration, useTypingCps());
 	return (
-		<Box>
-			<Text>{narration}</Text>
+		<Box flexDirection="column">
+			<Text>
+				{shown}
+				{!done && <Text color="magentaBright">▌</Text>}
+			</Text>
+			{narrating && done && (
+				<Text color="magenta" dimColor>
+					{'✎ the game master writes' + '.'.repeat((tick % 4) + 1)}
+				</Text>
+			)}
 		</Box>
 	);
 }

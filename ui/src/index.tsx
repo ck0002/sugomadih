@@ -1,6 +1,7 @@
 import {render, useApp, useInput} from 'ink';
 import {App} from './App.js';
 import {AnimationClock} from './render/animation.js';
+import {SettingsProvider} from './settings/settings.js';
 
 function Root() {
 	const {exit} = useApp();
@@ -8,9 +9,11 @@ function Root() {
 		if (input === 'q') exit();
 	});
 	return (
-		<AnimationClock>
-			<App />
-		</AnimationClock>
+		<SettingsProvider>
+			<AnimationClock>
+				<App />
+			</AnimationClock>
+		</SettingsProvider>
 	);
 }
 

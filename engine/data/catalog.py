@@ -5,10 +5,12 @@ validation all read from these dicts, so nothing else needs to change.
 """
 
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass, replace
 
 from engine.data import sprites as sp
-from engine.models import Character, Entity, Item, Stats
+from engine.combat.attacks import Attack, attack
+from engine.models import Character, Entity, Item, Potion, Stats, Weapon
 
 
 @dataclass(frozen=True)
@@ -18,8 +20,19 @@ class Spawnable:
     make: Callable[[], Entity]
 
 
-def _enemy(name: str, desc: str, art: dict, stats: Stats, line: str) -> Callable[[], Character]:
-    return lambda: Character(name=name, description=desc, art=art, stats=replace(stats), hostile=True, dialogue=[line])
+def _enemy(
+    name: str, desc: str, art: dict, stats: Stats, line: str, attacks: list[Attack], resist: dict[str, float] | None = None
+) -> Callable[[], Character]:
+    return lambda: Character(
+        name=name,
+        description=desc,
+        art=art,
+        stats=replace(stats),
+        hostile=True,
+        dialogue=[line],
+        attacks=deepcopy(attacks),
+        resistances=dict(resist or {}),
+    )
 
 
 def _npc(name: str, desc: str, art: dict, stats: Stats, lines: list[str]) -> Callable[[], Character]:
@@ -30,14 +43,47 @@ def _item(name: str, desc: str, art: dict, buffs: Stats, value: int) -> Callable
     return lambda: Item(name=name, description=desc, art=art, stats=replace(buffs), value=value)
 
 
+def _weapon(name: str, desc: str, art: dict, buffs: Stats, value: int, hit: Attack) -> Callable[[], Weapon]:
+    return lambda: Weapon(name=name, description=desc, art=art, stats=replace(buffs), value=value, attack=deepcopy(hit))
+
+
+def _potion(name: str, desc: str, art: dict, value: int, heal: int) -> Callable[[], Potion]:
+    return lambda: Potion(name=name, description=desc, art=art, value=value, heal=heal)
+
+
+# Resistances: 0 immune, 0.5 resists, 2 weak. Keys are damage type ids or categories (engine/combat/damage.py).
 ENEMIES = {
     s.id: s
     for s in [
-        Spawnable("goblin", "weak, sneaky, steals", _enemy("Goblin", "Small, green, very interested in your pockets.", sp.GOBLIN, Stats(strength=8, dexterity=14, max_hp=7), "Shiny! Give!")),
-        Spawnable("giant_rat", "weak, comes in packs", _enemy("Giant Rat", "The size of a dog and twice as rude.", sp.GIANT_RAT, Stats(strength=6, dexterity=15, max_hp=4), "*squeak*")),
-        Spawnable("skeleton", "medium, undead guard", _enemy("Skeleton", "Rattles when it walks. Rattles when it doesn't.", sp.SKELETON, Stats(strength=10, dexterity=12, max_hp=13), "...")),
-        Spawnable("slime", "medium, slow, acidic", _enemy("Slime", "Wobbles hungrily.", sp.SLIME, Stats(strength=12, dexterity=4, max_hp=18), "*blorp*")),
-        Spawnable("cultist", "strong, casts dark magic", _enemy("Cultist", "Chants under their breath. It's not a nice chant.", sp.CULTIST, Stats(strength=10, intelligence=14, max_hp=16), "The Deep One wakes!")),
+        Spawnable("goblin", "weak, sneaky, steals", _enemy(
+            "Goblin", "Small, green, very interested in your pockets.", sp.GOBLIN,
+            Stats(strength=8, dexterity=14, max_hp=7), "Shiny! Give!",
+            [attack("Rusty Dagger", "dexterity", ("1d4", "piercing"))],
+        )),
+        Spawnable("giant_rat", "weak, comes in packs", _enemy(
+            "Giant Rat", "The size of a dog and twice as rude.", sp.GIANT_RAT,
+            Stats(strength=6, dexterity=15, max_hp=4), "*squeak*",
+            [attack("Bite", "dexterity", ("1d3", "sharp"))],
+            {"fire": 1.5},
+        )),
+        Spawnable("skeleton", "medium, undead guard, weak to blunt weapons", _enemy(
+            "Skeleton", "Rattles when it walks. Rattles when it doesn't.", sp.SKELETON,
+            Stats(strength=12, dexterity=12, max_hp=13), "...",
+            [attack("Bone Club", "strength", ("1d6", "dull"))],
+            {"sharp": 0.5, "piercing": 0.5, "dull": 2.0, "water": 0.5},
+        )),
+        Spawnable("slime", "medium, slow, resists weapons, weak to fire", _enemy(
+            "Slime", "Wobbles hungrily.", sp.SLIME,
+            Stats(strength=12, dexterity=4, max_hp=18), "*blorp*",
+            [attack("Engulf", "strength", ("1d4", "dull"), ("1d2", "water"))],
+            {"physical": 0.5, "dull": 0.25, "fire": 2.0, "water": 0.0},
+        )),
+        Spawnable("cultist", "strong, casts fire magic, resists magic", _enemy(
+            "Cultist", "Chants under their breath. It's not a nice chant.", sp.CULTIST,
+            Stats(strength=10, dexterity=12, intelligence=14, max_hp=16), "The Deep One wakes!",
+            [attack("Hellfire", "intelligence", ("1d8", "fire")), attack("Ritual Knife", "dexterity", ("1d4", "sharp"))],
+            {"magic": 0.5, "water": 1.5},
+        )),
     ]
 }
 
@@ -52,8 +98,23 @@ NPCS = {
 ITEMS = {
     s.id: s
     for s in [
-        Spawnable("rusty_sword", "weapon, +2 strength", _item("Rusty Sword", "Seen better days, still pointy.", sp.SWORD, Stats(strength=2), 5)),
-        Spawnable("red_potion", "healing potion", _item("Red Potion", "Smells like cherries and regret.", sp.POTION, Stats(max_hp=5), 10)),
+        Spawnable("rusty_sword", "weapon, sharp damage", _weapon(
+            "Rusty Sword", "Seen better days, still pointy.", sp.SWORD, Stats(), 5,
+            attack("Rusty Sword", "strength", ("1d6", "sharp")),
+        )),
+        Spawnable("war_hammer", "weapon, dull damage, good vs skeletons", _weapon(
+            "War Hammer", "Every problem looks like a nail.", sp.HAMMER, Stats(), 15,
+            attack("War Hammer", "strength", ("1d8", "dull")),
+        )),
+        Spawnable("spear", "weapon, piercing damage", _weapon(
+            "Spear", "Keeps things at a polite distance.", sp.SPEAR, Stats(), 10,
+            attack("Spear", "dexterity", ("1d6", "piercing")),
+        )),
+        Spawnable("flaming_sword", "rare weapon, sharp + fire damage", _weapon(
+            "Flaming Sword", "Warm to the touch. Very warm.", sp.FLAMING_SWORD, Stats(), 60,
+            attack("Flaming Sword", "strength", ("1d6", "sharp"), ("1d4", "fire")),
+        )),
+        Spawnable("red_potion", "healing potion", _potion("Red Potion", "Smells like cherries and regret. Heals 8.", sp.POTION, 10, heal=8)),
         Spawnable("owl_amulet", "trinket, +1 wisdom +1 charisma", _item("Owl Amulet", "The owl watches. The owl knows.", sp.AMULET, Stats(wisdom=1, charisma=1), 25)),
         Spawnable("brass_key", "opens something", _item("Brass Key", "Opens something, somewhere.", sp.KEY, Stats(), 1)),
         Spawnable("gold_coins", "treasure", _item("Gold Coins", "A small pile of gold.", sp.COINS, Stats(), 20)),
@@ -94,6 +155,11 @@ def make_party() -> list[Character]:
         art=sp.PLAYER,
         stats=Stats(strength=12, dexterity=14, constitution=12, intelligence=10, wisdom=11, charisma=13, max_hp=20),
         inventory=[ITEMS["rusty_sword"].make(), ITEMS["red_potion"].make()],
+        # Spells the player knows (weapons in the inventory add more attacks).
+        attacks=[
+            attack("Fire Bolt", "intelligence", ("1d6", "fire")),
+            attack("Water Jet", "intelligence", ("1d4", "water")),
+        ],
     )
     brena = Character(
         id="brena",

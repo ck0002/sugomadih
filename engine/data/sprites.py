@@ -284,3 +284,42 @@ _torch = art(r"""
  ||
 """)
 TORCH = {"idle": hold(_torch, 3) + hold(put(put(_torch, 0, 1, "{"), 0, 2, "}"), 3) + hold(_torch, 2) + hold(put(_torch, 0, 2, ")"), 2)}
+
+HAMMER = _glint(
+    art(r"""
+ ___
+|___|
+  |
+  |
+  |
+"""),
+    (0, 1),
+    (1, 2),
+    (1, 3),
+)
+
+SPEAR = _glint(
+    art(r"""
+  ^
+  |
+  |
+  |
+  |
+"""),
+    (0, 2),
+    (1, 3),
+)
+
+_flaming_sword = art(r"""
+  /\
+  ||
+  ||
+ -++-
+  ||
+""")
+FLAMING_SWORD = {
+    "idle": hold(put(put(_flaming_sword, 0, 1, "("), 0, 4, ")"), 3)
+    + hold(put(put(_flaming_sword, 1, 1, "{"), 1, 4, "}"), 3)
+    + hold(put(put(_flaming_sword, 0, 1, ")"), 0, 4, "("), 3)
+    + hold(put(put(_flaming_sword, 2, 1, "("), 2, 4, ")"), 3)
+}

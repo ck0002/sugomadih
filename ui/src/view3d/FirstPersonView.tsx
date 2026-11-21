@@ -2,7 +2,7 @@ import {useMemo} from 'react';
 import {frameAt, frameBox, framesOf, useTick} from '../render/animation.js';
 import {CellGrid} from '../render/CellGrid.js';
 import {DIR_VECTORS, playerPlacement} from '../state.js';
-import type {GameState} from '../types.js';
+import {isItem, type GameState} from '../types.js';
 import {entityGlyph} from '../map/glyphs.js';
 import {renderScene, type Sprite} from './raycast.js';
 import {themeFor} from './themes.js';
@@ -37,7 +37,7 @@ function spritesFrom(state: GameState, playerId: string, tick: number): Sprite[]
 				artHeight: box.height,
 				glyph: glyph.char,
 				color: glyph.color ?? 'white',
-				height: entity.kind === 'item' ? 0.3 : 0.75,
+				height: isItem(entity) ? 0.3 : 0.75,
 			},
 		];
 	});

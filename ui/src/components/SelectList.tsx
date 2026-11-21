@@ -1,5 +1,6 @@
 import {useState} from 'react';
-import {Box, Text, useInput} from 'ink';
+import {Box, Text} from 'ink';
+import {usePress} from '../input/keys.js';
 
 export type ListEntry = {key: string; label: string; color?: string};
 
@@ -19,7 +20,7 @@ export function SelectList({entries, isActive, onHighlight, onSelect}: Props) {
 		onHighlight?.(next);
 	};
 
-	useInput(
+	usePress(
 		(_input, key) => {
 			if (entries.length === 0) return;
 			if (key.upArrow) move((index - 1 + entries.length) % entries.length);

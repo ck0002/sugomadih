@@ -82,7 +82,8 @@ def enter_next_room(game: Game, narration: "Narration | None" = None) -> None:
 
 
 def main() -> None:
-    logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    level = os.environ.get("DNLLM_LOG_LEVEL", "INFO").upper()
+    logging.basicConfig(stream=sys.stderr, level=level, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     seed = int(os.environ["DNLLM_SEED"]) if "DNLLM_SEED" in os.environ else None
     llm = LlamaServerClient(os.environ.get("DNLLM_LLM_URL", "http://127.0.0.1:8080"))
     game = Game(RoomDirector(llm, fallback=RandomLLM(random.Random(seed))), seed=seed)

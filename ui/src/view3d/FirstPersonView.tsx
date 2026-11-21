@@ -6,18 +6,21 @@ import {isItem, type GameState} from '../types.js';
 import {entityGlyph} from '../map/glyphs.js';
 import {renderScene, type Sprite} from './raycast.js';
 import {themeFor} from './themes.js';
+import {useSmoothCamera} from './useSmoothCamera.js';
 
-type Props = {state: GameState; width: number; height: number};
+type Props = {state: GameState; width: number; height: number; glideMs?: number};
 
-// What the player sees: the map rendered in first person.
-export function FirstPersonView({state, width, height}: Props) {
+// What the player sees: the map rendered in first person. The camera glides between tiles (useSmoothCamera).
+export function FirstPersonView({state, width, height, glideMs = 0}: Props) {
 	const tick = useTick();
-	const grid = useMemo(() => {
-		const player = playerPlacement(state);
-		const [dirX, dirY] = DIR_VECTORS[player.facing ?? 'N'];
-		const camera = {x: player.x + 0.5, y: player.y + 0.5, dirX, dirY};
-		return renderScene(state.map.tiles, camera, spritesFrom(state, player.id, tick), width, height, themeFor(state.map.theme));
-	}, [state, width, height, tick]);
+	const player = playerPlacement(state);
+	const [dirX, dirY] = DIR_VECTORS[player.facing ?? 'N'];
+	const camera = useSmoothCamera({x: player.x + 0.5, y: player.y + 0.5, dirX, dirY}, glideMs);
+
+	const grid = useMemo(
+		() => renderScene(state.map.tiles, camera, spritesFrom(state, player.id, tick), width, height, themeFor(state.map.theme)),
+		[state, camera, player.id, width, height, tick],
+	);
 
 	return <CellGrid grid={grid} />;
 }

@@ -23,6 +23,7 @@ export type Engine = {
 	message: string; // feedback for the last action
 	loading: string | null; // set while the engine (LLM) is working
 	dispatch: (action: Action) => void;
+	busy: () => boolean; // an action was sent and its state hasn't come back yet
 };
 
 export function useEngine(): Engine {
@@ -33,6 +34,7 @@ export function useEngine(): Engine {
 	const [message, setMessage] = useState('');
 	const [loading, setLoading] = useState<string | null>('Starting the engine...');
 	const proc = useRef<ChildProcess | null>(null);
+	const inFlight = useRef(0);
 
 	useEffect(() => {
 		const log = openSync(join(REPO_ROOT, 'engine.log'), 'a');
@@ -54,6 +56,7 @@ export function useEngine(): Engine {
 					setLoading(msg.message);
 					break;
 				case 'state': {
+					inFlight.current = Math.max(0, inFlight.current - 1);
 					// Narration from a state message only counts for a new room; during play the
 					// newer 'narration' messages win (a state can carry an older retelling).
 					const key = `${msg.state.run}:${msg.state.room}`;
@@ -75,6 +78,7 @@ export function useEngine(): Engine {
 					setNarrating(false);
 					break;
 				case 'error':
+					inFlight.current = 0;
 					setMessage(`Engine error: ${msg.message}`);
 					setLoading(null);
 					break;
@@ -98,8 +102,10 @@ export function useEngine(): Engine {
 	}, []);
 
 	const dispatch = useCallback((action: Action) => {
+		inFlight.current += 1;
 		proc.current?.stdin?.write(JSON.stringify({type: 'action', action}) + '\n');
 	}, []);
+	const busy = useCallback(() => inFlight.current > 0, []);
 
-	return {state, narration, narrating, message, loading, dispatch};
+	return {state, narration, narrating, message, loading, dispatch, busy};
 }

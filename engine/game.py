@@ -84,7 +84,7 @@ class Game:
                     case "exit":
                         return "new_room"
                     case "wall":
-                        self._say("A wall blocks your way.")
+                        self.message = "A wall blocks your way."  # not logged: holding a key into a wall would spam the log
                     case "bump" if isinstance(result.entity, Character) and result.entity.hostile:
                         took_turn = self._attack(result.entity, self.player.available_attacks()[0])  # walking into an enemy attacks it
                     case "bump" if isinstance(result.entity, Character):
@@ -95,6 +95,8 @@ class Game:
                         self._say(f"You pick up the {result.entity.name}.")
                         took_turn = True
                     case "moved":
+                        p = self.map.placement_of(self.player.id)
+                        log.debug("player moved to %s,%s", p.x, p.y)
                         took_turn = True
             case "turn":
                 movement.turn(self.map, self.player.id, "left" if action.get("dir") == "left" else "right")

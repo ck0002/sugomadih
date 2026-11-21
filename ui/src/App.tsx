@@ -1,13 +1,14 @@
 import {useState} from 'react';
-import {Box, useInput, useWindowSize} from 'ink';
+import {Box, useWindowSize} from 'ink';
 import {useEngine} from './bridge/useEngine.js';
 import {Panel} from './components/Panel.js';
 import {GameMasterScreen} from './gm/GameMasterScreen.js';
+import {useHoldKeys, usePress} from './input/keys.js';
 import {StatusBar} from './hud/StatusBar.js';
 import {Minimap} from './map/Minimap.js';
 import {NearbyList} from './map/NearbyList.js';
 import {MenuBox} from './menu/MenuBox.js';
-import {useSettings} from './settings/settings.js';
+import {MOVE_SPEEDS, useSettings} from './settings/settings.js';
 import {entityAt, tileAhead} from './state.js';
 import {LogText} from './story/LogText.js';
 import {StoryText} from './story/StoryText.js';
@@ -24,19 +25,33 @@ const LOG_LINES = 5;
 // To add a box, drop another <Panel> into the row or column where you want it.
 export function App() {
 	const {columns, rows} = useWindowSize();
-	const {state, narration, narrating, message, loading, dispatch} = useEngine();
+	const {state, narration, narrating, message, loading, dispatch, busy} = useEngine();
 	const {settings} = useSettings();
 	const [introSeen, setIntroSeen] = useState(''); // run:room whose intro was dismissed
 	const roomKey = state ? `${state.run}:${state.room}` : '';
 	const showIntro = Boolean(state && settings.gmIntro && roomKey !== introSeen);
 
-	useInput(input => {
-		if (loading || !state || showIntro) return; // don't queue moves while the next room is being made
-		if (input === 'w') dispatch({type: 'move', dir: 'forward'});
-		if (input === 's') dispatch({type: 'move', dir: 'back'});
-		if (input === 'a') dispatch({type: 'turn', dir: 'left'});
-		if (input === 'd') dispatch({type: 'turn', dir: 'right'});
-		if (input === 'f') dispatch({type: 'attack', attack: 0}); // default attack (first weapon)
+	const playing = Boolean(state && !loading && !showIntro);
+	const step = MOVE_SPEEDS[settings.moveSpeed];
+
+	// Movement repeats at a steady `step` while held (input/holdRepeat.ts). An action only goes out when
+	// the previous one has been answered, so moves never pile up and stop the moment the key is let go.
+	const act = (action: Parameters<typeof dispatch>[0]) => () => {
+		if (busy()) return false;
+		dispatch(action);
+		return true;
+	};
+	useHoldKeys(
+		{
+			w: {interval: step, action: act({type: 'move', dir: 'forward'})},
+			s: {interval: step, action: act({type: 'move', dir: 'back'})},
+			a: {interval: step * 1.4, action: act({type: 'turn', dir: 'left'})},
+			d: {interval: step * 1.4, action: act({type: 'turn', dir: 'right'})},
+		},
+		playing,
+	);
+	usePress(input => {
+		if (playing && input === 'f' && !busy()) dispatch({type: 'attack', attack: 0}); // default attack (first weapon)
 	});
 
 	if (!state || loading) {
@@ -89,6 +104,7 @@ export function App() {
 					>
 						<FirstPersonView
 							state={state}
+							glideMs={settings.smoothCamera ? step : 0}
 							width={columns - SIDE_WIDTH - PANEL_CHROME_X}
 							height={viewHeight - PANEL_CHROME_Y}
 						/>

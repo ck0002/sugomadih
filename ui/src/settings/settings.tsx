@@ -9,12 +9,18 @@ import {REPO_ROOT} from '../paths.js';
 export const TYPING_SPEEDS = {slow: 25, normal: 50, fast: 110, instant: Infinity} as const;
 export type TypingSpeed = keyof typeof TYPING_SPEEDS;
 
+// Milliseconds per step while a movement key is held (turning is a bit slower).
+export const MOVE_SPEEDS = {slow: 260, normal: 180, fast: 120} as const;
+export type MoveSpeed = keyof typeof MOVE_SPEEDS;
+
 export type Settings = {
 	typingSpeed: TypingSpeed;
 	gmIntro: boolean; // show the game master's intro before each room
+	moveSpeed: MoveSpeed;
+	smoothCamera: boolean; // glide the 3D view between tiles instead of jumping
 };
 
-const DEFAULTS: Settings = {typingSpeed: 'fast', gmIntro: true};
+const DEFAULTS: Settings = {typingSpeed: 'fast', gmIntro: true, moveSpeed: 'normal', smoothCamera: true};
 const FILE = join(REPO_ROOT, '.dnllm-settings.json');
 
 function load(): Settings {

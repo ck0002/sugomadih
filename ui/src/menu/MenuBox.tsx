@@ -22,11 +22,14 @@ export function MenuBox({state, dispatch, height}: Props) {
 	const tab = TABS[active]!;
 
 	return (
-		<Panel height={height} flexShrink={0}>
-			<Box columnGap={2} marginBottom={1}>
+		<Panel title="Menu" subtitle="← →" color="yellow" titleColor="yellowBright" height={height} flexShrink={0}>
+			<Box marginBottom={1}>
 				{TABS.map((t, i) => (
-					<Text key={t.id} bold={i === active} inverse={i === active} color={i === active ? 'yellow' : 'gray'}>
-						{` ${t.label} `}
+					<Text key={t.id}>
+						{i > 0 && <Text color="gray"> │ </Text>}
+						<Text bold={i === active} inverse={i === active} color={i === active ? 'yellowBright' : 'gray'}>
+							{i === active ? ` ◆ ${t.label} ` : ` ${t.label} `}
+						</Text>
 					</Text>
 				))}
 			</Box>

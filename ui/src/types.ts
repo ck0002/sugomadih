@@ -94,6 +94,7 @@ export type MapState = {
 
 export type GameState = {
 	room: number; // how many rooms deep we are
+	run: number; // which attempt (goes up when the party dies and a new run starts)
 	party: Character[]; // party[0] is the player
 	entities: Record<string, Entity>; // everything on the map, by id
 	map: MapState;

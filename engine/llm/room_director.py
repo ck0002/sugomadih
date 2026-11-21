@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 
 from engine.data.catalog import ENEMIES, FEATURES, ITEMS, LAYOUTS, NPCS, THEMES
 from engine.llm.client import LLMClient, LLMError
+from engine.llm.text import clean_story
 from engine.models import Character
 
 log = logging.getLogger(__name__)
@@ -126,12 +127,7 @@ def parse_room_plan(raw: object, source: str = "llm") -> RoomPlan:
         return value[:limit] if value else default
 
     def story(key: str, limit: int, default: str) -> str:
-        """Like text(), but if the model got cut off mid-sentence, end at the last full sentence."""
-        value = text(key, limit, default)
-        if value[-1] not in ".!?\"'":
-            end = max(value.rfind(p) for p in ".!?")
-            value = value[: end + 1] if end > 0 else value + "..."
-        return value
+        return clean_story(data.get(key), limit) or default
 
     return RoomPlan(
         name=text("name", MAX_NAME, FALLBACK_NAMES[0]),

@@ -32,6 +32,7 @@ class Game:
 
     def reset(self) -> None:
         """Fresh party at the top of the dungeon (call next_room() after)."""
+        self.run = getattr(self, "run", 0) + 1  # which attempt this is; the UI shows the intro again on a new run
         self.party: list[Character] = make_party()
         self.entities: dict[str, Entity] = {}
         self.map = MapState(name="", theme="cellar", tiles=[])
@@ -41,6 +42,7 @@ class Game:
         self.message = ""  # short feedback for the last action
         self.log: list[str] = []  # combat / event log, newest last
         self.log_fresh = 0  # how many log lines the last action added (UI highlights them)
+        self.combat_events: list[str] = []  # what happened in combat during the last action (for the narrator)
 
     @property
     def player(self) -> Character:
@@ -73,6 +75,7 @@ class Game:
         """Apply one UI action. "new_room": caller calls next_room(). "game_over": caller calls reset() + next_room()."""
         self.message = ""
         self.log_fresh = 0
+        self.combat_events = []
         took_turn = False
         match action.get("type"):
             case "move":
@@ -135,6 +138,7 @@ class Game:
         result = resolve_attack(self.player, attack, target, self.rng)
         for line in result.messages:
             self._say(line)
+        self.combat_events += result.messages
         if result.killed:
             ai.remove(self.map, self.entities, target.id)
         return True
@@ -159,6 +163,7 @@ class Game:
     def _world_turn(self) -> None:
         messages, _ = tick_statuses(self.player)
         messages += ai.enemy_turns(self.map, self.entities, self.player, self.rng)
+        self.combat_events += messages
         for line in messages:
             self._say(line)
 
@@ -194,6 +199,7 @@ class Game:
             "entities": to_json(self.entities),
             "map": to_json(self.map),
             "room": self.room_number,
+            "run": self.run,
             "log": self.log,
             "log_fresh": self.log_fresh,
             "damage_types": damage_type_info(),

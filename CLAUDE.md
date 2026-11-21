@@ -25,13 +25,14 @@ DnLLM/
 ├── main.py                   Python entry point (still a stub; the UI starts engine.server itself)
 ├── pyproject.toml, uv.lock   Python project (uv, Python 3.14, pytest as dev dep)
 ├── engine.log                engine stderr while the UI runs (gitignored)
+├── .dnllm-settings.json      player settings saved by the UI (gitignored)
 ├── scripts/
 │   └── llm-server.sh         starts llama-server with Qwen3.5 2B on :8080
 ├── tests/
 │   ├── test_engine.py        mapgen invariants, LLM plan parsing/fallback, walk-to-exit, pickup, JSON shape
 │   └── test_combat.py        damage type tree, resistances, crits, statuses, enemy AI, death, potions
 ├── engine/                   Python game logic: all the rules live here
-│   ├── server.py             BRIDGE to the UI: JSON lines over stdin/stdout (protocol in its docstring)
+│   ├── server.py             BRIDGE to the UI: JSON lines over stdin/stdout (protocol in its docstring); runs the narrator thread
 │   ├── game.py               Game: party, entities, map, log, next_room(), handle(action) -> ok/new_room/game_over, turn loop, to_dict()
 │   ├── models/               game objects (dataclasses), exported from __init__.py
 │   │   ├── stats.py          Stats: 6 ability scores + max_hp; also used for item buffs; Stats + Stats sums fields
@@ -44,7 +45,9 @@ DnLLM/
 │   │   └── sprites.py        ASCII animations for every entity (art/hold/put/blink helpers)
 │   ├── llm/
 │   │   ├── client.py         LLMClient protocol, LlamaServerClient (json_schema constrained), RandomLLM (offline/tests), LLMError
-│   │   └── room_director.py  room_schema() + room_prompt() from the catalog, parse_room_plan() validation, RoomDirector (LLM -> fallback)
+│   │   ├── room_director.py  room_schema() + room_prompt() from the catalog, parse_room_plan() validation, RoomDirector (LLM -> fallback)
+│   │   ├── narrator.py       CombatNarrator (retells a turn's combat events) + NarrationWorker thread (newest request wins)
+│   │   └── text.py           clean_story(): trims LLM story text to the last full sentence
 │   ├── combat/               FIGHTING
 │   │   ├── damage.py         DamageType (abstract) -> PhysicalDamage/MagicDamage (abstract) -> Sharp, Dull, Piercing, Fire, Water; @register, DAMAGE_TYPES
 │   │   ├── attacks.py        DamageRoll(dice, type id), Attack(name, damage[], stat), attack() shorthand, UNARMED
@@ -62,26 +65,35 @@ DnLLM/
 └── ui/                       React + Ink terminal UI (TypeScript, Ink 8, React 19)
     ├── package.json          npm run dev / npm run typecheck
     └── src/
-        ├── index.tsx         render() in alternate screen; q quits
-        ├── App.tsx           SCREEN LAYOUT + key bindings. Add or move boxes here.
+        ├── index.tsx         render() in alternate screen; SettingsProvider + AnimationClock; q quits
+        ├── paths.ts          REPO_ROOT
+        ├── App.tsx           FLOW (GM thinking -> GM intro -> game) + SCREEN LAYOUT + key bindings. Add or move boxes here.
         ├── types.ts          TS mirror of the Python models + GameState + Action. Keep in sync with engine/models.
         ├── state.ts          read-only GameState helpers (playerPlacement, entityAt, tileAhead, directions)
         ├── bridge/
-        │   └── useEngine.ts  spawns `uv run python -m engine.server`, JSON lines; returns {state, narration, message, loading, dispatch}
+        │   └── useEngine.ts  spawns `uv run python -m engine.server`, JSON lines; returns {state, narration, narrating, message, loading, dispatch}
+        ├── settings/
+        │   └── settings.tsx  Settings (typingSpeed, gmIntro), TYPING_SPEEDS, SettingsProvider/useSettings/useTypingCps, saved to .dnllm-settings.json
+        ├── gm/
+        │   ├── GameMasterScreen.tsx  full-screen GM card: "thinking" (LLM working, logo on first load) / "speaking" (typed room intro)
+        │   └── art.ts        LOGO + hooded GM frames (idle, blink, talking, thinking)
+        ├── hud/
+        │   └── StatusBar.tsx bottom line: HP, AC, weapon, statuses, room + keycap hints
         ├── story/
-        │   ├── StoryText.tsx LLM narration for the room, spinner while the next room is generated
+        │   ├── StoryText.tsx Game Master panel: latest narration, typed; "the game master writes..." while narrating
         │   └── LogText.tsx   combat/event log under the 3D view (fresh lines bright)
         ├── combat/
         │   └── DamageText.tsx  DamageText (coloured "1d6 sharp + 1d4 fire"), Effectiveness (×2 weak), StatusList
         ├── components/       reusable building blocks
-        │   ├── Panel.tsx     bordered box with title; every window on screen is a Panel
+        │   ├── Panel.tsx     rounded box with title (and optional subtitle) set into the top border; every window is a Panel
         │   ├── SelectList.tsx  ↑/↓/enter list used by the menu tabs
         │   ├── StatBlock.tsx   stats row (or +/- buffs)
         │   ├── AnimatedArt.tsx plays an entity's current animation in a fixed-size box
         │   └── HpBar.tsx
         ├── render/
         │   ├── CellGrid.tsx  Cell type {char, color, dim} + component that draws a Cell[][]
-        │   └── animation.tsx AnimationClock (global tick, FPS=8), useTick(), framesOf/frameAt/frameBox
+        │   ├── animation.tsx AnimationClock (global tick, FPS=8), useTick(), framesOf/frameAt/frameBox
+        │   └── useTypewriter.ts  typing animation hook: {shown, done, skip} at N chars/second
         ├── view3d/           first-person 3D view
         │   ├── raycast.ts    pure ASCII raycaster: tiles + camera + sprites + theme -> Cell[][]
         │   ├── themes.ts     theme name (from the LLM) -> wall/door/exit/floor/water colours
@@ -96,6 +108,7 @@ DnLLM/
             └── tabs/         one file per tab; index.ts holds the TABS list
                 ├── FightTab.tsx  pick an attack, see target HP/AC/statuses and how effective it is
                 ├── ItemsTab.tsx (enter: ready weapon / drink potion), PartyTab.tsx, OptionsTab.tsx (New room / Save / Load / Quit)
+                ├── SettingsTab.tsx  enter cycles a setting (typing speed, GM intro)
                 └── index.ts
 ```
 
@@ -121,6 +134,9 @@ DnLLM/
 | New key binding | `useInput` in `ui/src/App.tsx` (menu keys live in `MenuBox` / `SelectList`) |
 | New tile type | `engine/models/world.py` + `SOLID`/`wallColor`/`floorCell` in `ui/src/view3d/raycast.ts` + `TILE_GLYPHS` in `ui/src/map/glyphs.ts` |
 | How things look in 3D | sprite size/colour in `view3d/FirstPersonView.tsx`; the art itself is the entity's `art` field |
+| Typing speed options / new setting | `TYPING_SPEEDS` / `Settings` + `DEFAULTS` in `ui/src/settings/settings.tsx`, row in `SettingsTab.tsx` |
+| Game master look / intro screen | `ui/src/gm/art.ts`, `ui/src/gm/GameMasterScreen.tsx` |
+| How combat is narrated | `SYSTEM_PROMPT` / `narrate()` in `engine/llm/narrator.py` |
 | Animation speed | `FPS` in `ui/src/render/animation.tsx` |
 | LLM model or server flags | `scripts/llm-server.sh` |
 
@@ -134,6 +150,12 @@ DnLLM/
 - `party[0]` is the player. Party members travel with the player and aren't placed on the map. Characters also carry `total_stats` (base + item buffs) for the UI.
 - GameState = `{room, party, entities, map, log, log_fresh, damage_types}` from `Game.to_dict()`.
 
+### Screen flow and story
+
+- Before every room: the GM "thinking" screen while the LLM builds it (the DnLLM logo on first load), then the GM "speaking" screen types the room narration. Enter skips the typing, and Enter again enters the room. It can be turned off in Settings.
+- During play, the Game Master panel types the latest narration. After every action with combat, the server hands that turn's combat events to the narrator thread, which asks the LLM for a 1–2 sentence retelling (offline: the raw events). Only the newest one is shown, and a new room cancels any narration still pending.
+- The typing speed (slow 25 / normal 50 / fast 110 cps / instant) applies to all typing animations and is set in the SETTINGS tab.
+
 ### Combat
 
 - Turn-based. Moving, attacking, picking up and drinking cost a turn; turning, menus and swinging at nothing are free. After the player's turn: player statuses tick, then every hostile ticks its statuses and acts (attacks if adjacent, otherwise steps toward the player within 6 tiles).
@@ -146,7 +168,8 @@ DnLLM/
 ### Engine <-> UI protocol (JSON lines over stdio)
 
 - UI -> engine: `{"type": "action", "action": Action}`.
-- Engine -> UI: `{"type": "loading", "message"}` while the LLM works, `{"type": "state", "state", "narration", "message"}` after every action, and `{"type": "error", "message"}`.
+- Engine -> UI: `{"type": "loading", "message"}` while the LLM builds a room, `{"type": "state", "state", "narration", "message"}` after every action, `{"type": "narrating"}` + later `{"type": "narration", "text"}` when combat happened (sent from the narrator thread), and `{"type": "error", "message"}`.
+- The UI takes `narration` from a state message only when the room changes (`run:room` key); during play the newer `narration` messages win.
 - The engine's stdout is only for protocol messages. Logs go to stderr, and the UI writes them to `engine.log`.
 
 ## Running
@@ -163,6 +186,23 @@ DnLLM/
 - Room flow: `room_schema()` (enums built from the catalog) + `room_prompt()` -> LLM -> JSON `{theme, layout, features[], enemies[], npcs[], items[], name, narration}` -> `parse_room_plan()` (drops unknown ids, caps counts, trims cut-off narration) -> `build_room()` + `populate()`.
 - If the server is down or the reply is unusable, `RoomDirector` uses `RandomLLM` instead (a random answer that fits the schema), and the UI shows "(LLM offline: random room)".
 - A room takes about 3–4 s to generate (~50 tok/s on an M-series Mac).
+
+## Git workflow
+
+```
+feature branch ──(fast-forward)──▶ rc ──(merge commit)──▶ main ──▶ push both to upstream
+```
+
+1. **Branch off `rc`** for each feature: `git checkout -b <feature> rc` (e.g. `llm-integration`, `combat`).
+2. **Commit on the feature branch.** Before committing, run `uv run pytest -q` and `cd ui && npm run typecheck`, and update the project structure in this file.
+3. **Merge the feature into `rc`:** `git checkout rc && git merge --ff-only <feature>`.
+4. **Merge `rc` into `main`** with a merge commit and git's default message ("Merge branch 'rc'"): `git checkout main && git merge --no-edit rc`.
+5. **Push both:** `git push upstream rc main`. The remote is called `upstream`, not `origin`.
+
+Rules:
+- **Never sign commits as Claude.** No `Co-Authored-By: Claude` trailer and no "Generated with Claude Code" line, in commits or PRs.
+- **Commit, merge or push only when asked.** Never commit directly to `rc` or `main`; they only receive merges.
+- **Run `git fetch upstream` before merging,** to make sure `rc` and `main` aren't behind upstream.
 
 ## Conventions
 

@@ -195,3 +195,52 @@ def test_player_cannot_attack_friendly_npcs() -> None:
     game.handle({"type": "attack", "attack": 0})
     assert "don't want to hurt" in game.message
     assert DIR_VECTORS["E"] == (1, 0)
+
+
+# ---- narration -----------------------------------------------------------------
+
+
+def test_combat_events_are_collected_for_the_narrator() -> None:
+    goblin = ENEMIES["goblin"].make()
+    game = corridor_game(goblin, gap=1)
+    game.rng = AlwaysRoll(15)
+    game.handle({"type": "attack", "attack": 0})
+    assert game.combat_events and any("Goblin" in e for e in game.combat_events)
+    game.handle({"type": "turn", "dir": "left"})
+    assert game.combat_events == []
+
+
+def test_narrator_falls_back_to_raw_events_when_offline() -> None:
+    from engine.llm.client import LlamaServerClient
+    from engine.llm.narrator import CombatNarrator, NarrationRequest
+
+    narrator = CombatNarrator(LlamaServerClient("http://127.0.0.1:9", timeout=1))
+    text = narrator.narrate(NarrationRequest("Room", ["You hit the Goblin.", "The Goblin falls."], 10, 20))
+    assert text == "You hit the Goblin. The Goblin falls."
+
+
+def test_narration_worker_only_delivers_the_newest_request() -> None:
+    import threading
+
+    from engine.llm.narrator import NarrationRequest, NarrationWorker
+
+    started, release, results = threading.Event(), threading.Event(), []
+
+    class SlowNarrator:
+        def narrate(self, request):
+            started.set()
+            release.wait(2)
+            return request.events[0]
+
+    worker = NarrationWorker(SlowNarrator(), lambda seq, text: results.append((seq, text)))
+    worker.start()
+    worker.submit(1, NarrationRequest("R", ["first"], 1, 1))
+    started.wait(2)
+    worker.submit(2, NarrationRequest("R", ["second"], 1, 1))  # replaces...
+    worker.submit(3, NarrationRequest("R", ["third"], 1, 1))  # ...this one replaces it again
+    release.set()
+    for _ in range(100):
+        if len(results) == 2:
+            break
+        threading.Event().wait(0.02)
+    assert results == [(1, "first"), (3, "third")]

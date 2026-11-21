@@ -1,5 +1,6 @@
 import {useState} from 'react';
 import {Box, Text} from 'ink';
+import {AnimatedArt} from '../../components/AnimatedArt.js';
 import {SelectList} from '../../components/SelectList.js';
 import {StatBlock} from '../../components/StatBlock.js';
 import type {MenuTab, TabProps} from '../types.js';
@@ -21,7 +22,7 @@ function ItemsTab({state, isActive, dispatch}: TabProps) {
 			</Box>
 			{item && (
 				<>
-					<Text color="cyan">{item.art}</Text>
+					<AnimatedArt entity={item} color="cyan" />
 					<Box flexDirection="column" flexShrink={1}>
 						<Text bold>{item.name}</Text>
 						<Text dimColor>{item.description}</Text>

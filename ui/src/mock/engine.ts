@@ -6,6 +6,25 @@ import type {Action, GameState} from '../types.js';
 const BLOCKING = new Set(['#']);
 
 export function applyMockAction(state: GameState, action: Action): {state: GameState; message?: string} {
+	const result = applyAction(state, action);
+	return {...result, state: updateAnimations(result.state)};
+}
+
+// Hostiles standing next to the player play "attack", everyone else "idle".
+function updateAnimations(state: GameState): GameState {
+	const player = playerPlacement(state);
+	const entities = {...state.entities};
+	for (const {id, x, y} of state.map.placements) {
+		const e = entities[id];
+		if (!e || id === player.id) continue;
+		const adjacent = Math.abs(x - player.x) + Math.abs(y - player.y) === 1;
+		const animation = e.kind === 'character' && e.hostile && adjacent && 'attack' in e.art ? 'attack' : 'idle';
+		if (e.animation !== animation) entities[id] = {...e, animation};
+	}
+	return {...state, entities};
+}
+
+function applyAction(state: GameState, action: Action): {state: GameState; message?: string} {
 	const player = playerPlacement(state);
 	const facing = player.facing ?? 'N';
 

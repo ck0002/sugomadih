@@ -14,13 +14,21 @@ class Entity:
 
     name: str
     description: str = ""
-    art: str = ""  # ASCII art, how the thing looks
+    # ASCII art animations: name -> frames, each frame a multi-line string.
+    # Every entity should have "idle"; others ("attack", "hurt", ...) are optional.
+    # The UI plays frames at a fixed fps and loops them.
+    art: dict[str, list[str]] = field(default_factory=dict)
+    animation: str = "idle"  # which animation is playing now
     stats: Stats = field(default_factory=Stats)
     id: str = field(default_factory=_new_id)
 
     @property
     def kind(self) -> str:
         return type(self).__name__.lower()
+
+    def play(self, animation: str) -> None:
+        """Switch animation; falls back to idle if this entity doesn't have it."""
+        self.animation = animation if animation in self.art else "idle"
 
     def to_dict(self) -> dict:
         """JSON-ready form for the LLM and the UI."""

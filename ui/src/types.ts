@@ -10,11 +10,16 @@ export type Stats = {
 	max_hp: number;
 };
 
+// Animation name -> frames. Each frame is a multi-line ASCII string.
+// Every entity has "idle"; others ("attack", "hurt", ...) are optional.
+export type Animations = Record<string, string[]>;
+
 type EntityBase = {
 	id: string;
 	name: string;
 	description: string;
-	art: string;
+	art: Animations;
+	animation: string; // which animation is playing now
 	stats: Stats;
 };
 

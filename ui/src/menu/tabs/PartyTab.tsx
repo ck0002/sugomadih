@@ -1,6 +1,7 @@
 import {useState} from 'react';
 import {Box, Text} from 'ink';
 import {HpBar} from '../../components/HpBar.js';
+import {AnimatedArt} from '../../components/AnimatedArt.js';
 import {SelectList} from '../../components/SelectList.js';
 import {StatBlock} from '../../components/StatBlock.js';
 import type {MenuTab, TabProps} from '../types.js';
@@ -22,7 +23,7 @@ function PartyTab({state, isActive, dispatch}: TabProps) {
 			</Box>
 			{member && (
 				<>
-					<Text color="green">{member.art}</Text>
+					<AnimatedArt entity={member} color="green" />
 					<Box flexDirection="column" flexShrink={1}>
 						<Text bold>{member.name}</Text>
 						<Text dimColor>{member.description}</Text>

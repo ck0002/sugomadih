@@ -5,6 +5,7 @@
     ./play --seed 6        deterministic dungeon
     ./play --port 8091     run/use the LLM on another port
     ./play --check         only check that everything is installed
+    ./play --download      download the LLM model now (used by ./setup), then exit
 
 Dev options:
     ./play --debug                 DEBUG tab (teleport, god mode, kill all, win/lose...) + debug HUD
@@ -224,6 +225,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, help="seed for a repeatable dungeon")
     parser.add_argument("--port", type=int, default=8080, help="LLM server port (default 8080)")
     parser.add_argument("--check", action="store_true", help="only check that the tools are installed")
+    parser.add_argument("--download", action="store_true", help="download the LLM model now (first-time setup), then exit")
     dev = parser.add_argument_group("dev options")
     dev.add_argument("--debug", action="store_true", help="DEBUG tab (teleport, god mode, kill all, win/lose) + debug HUD")
     dev.add_argument("--chapter", metavar="N|end", help="start at story chapter N, or 'end' for the final chapter (implies --debug)")
@@ -235,11 +237,19 @@ def main() -> None:
     if args.chapter is not None and not (args.chapter.isdigit() or args.chapter.lower() in ("end", "last", "boss", "final")):
         parser.error("--chapter takes a number (1, 2, ...) or 'end'")
 
-    print(color(LOGO, "95"))
+    if not args.download:  # ./setup already printed its banner
+        print(color(LOGO, "95"))
     check_tools(need_llm=not args.offline)
     if args.check:
         ensure_ui_deps()
         ok("all good. Run ./play to start.")
+        return
+    if args.download:
+        # Starting the server downloads the model into the llama.cpp cache; then we stop it again.
+        url = f"http://127.0.0.1:{args.port}"
+        llm = start_llm(url, args.port)
+        stop_llm(llm)
+        ok("model downloaded and loads fine")
         return
     ensure_ui_deps()
 

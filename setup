@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+# DnLLM setup: installs everything the game needs, then downloads the LLM model. Safe to run again.
+#
+#   ./setup              ask before installing anything
+#   ./setup --yes        install without asking
+#   ./setup --no-model   skip the ~1.3 GB model download (the first ./play downloads it instead)
+#
+# Needs macOS or Linux (on Windows: use WSL with Ubuntu and run it there).
+# Installs: Homebrew (macOS, if missing), uv (Python 3.14 + packages), Node.js 22+, llama.cpp.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+YES=0
+MODEL=1
+for arg in "$@"; do
+  case "$arg" in
+    -y|--yes) YES=1 ;;
+    --no-model) MODEL=0 ;;
+    -h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "unknown option: $arg (try ./setup --help)"; exit 1 ;;
+  esac
+done
+
+if [ -t 1 ]; then C_STEP=$'\e[35m'; C_OK=$'\e[32m'; C_WARN=$'\e[33m'; C_ERR=$'\e[31m'; C_DIM=$'\e[2m'; C_END=$'\e[0m'
+else C_STEP=; C_OK=; C_WARN=; C_ERR=; C_DIM=; C_END=; fi
+step() { printf '%s◆%s %s\n' "$C_STEP" "$C_END" "$1"; }
+ok()   { printf '  %s✓%s %s\n' "$C_OK" "$C_END" "$1"; }
+warn() { printf '  %s!%s %s\n' "$C_WARN" "$C_END" "$1"; }
+die()  { printf '  %s✗%s %s\n' "$C_ERR" "$C_END" "$1"; exit 1; }
+have() { command -v "$1" >/dev/null 2>&1; }
+confirm() {
+  [ "$YES" = 1 ] && return 0
+  local reply
+  read -r -p "    $1 [Y/n] " reply </dev/tty || return 1
+  [[ -z "$reply" || "$reply" =~ ^[Yy] ]]
+}
+brew_install() {  # brew_install <what> <formula>
+  if confirm "Install $1 with Homebrew (brew install $2)?"; then
+    brew install "$2" || die "brew install $2 failed"
+  else
+    die "$1 is required. Install it and run ./setup again."
+  fi
+}
+node_major() { node -v 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/'; }
+
+cat <<'LOGO'
+ ____        _     _     __  __
+|  _ \ _ __ | |   | |   |  \/  |
+| | | | '_ \| |   | |   | |\/| |
+| |_| | | | | |___| |___| |  | |
+|____/|_| |_|_____|_____|_|  |_|   setup
+LOGO
+echo
+
+OS="$(uname -s)"
+case "$OS" in
+  Darwin|Linux) ;;
+  *) die "unsupported system '$OS'. On Windows, install WSL (Ubuntu) and run ./setup inside it." ;;
+esac
+
+# Homebrew: used for Node.js and llama.cpp. Linux works without it if those are installed another way.
+step "Package manager"
+for b in /opt/homebrew/bin/brew /usr/local/bin/brew /home/linuxbrew/.linuxbrew/bin/brew; do
+  if ! have brew && [ -x "$b" ]; then eval "$("$b" shellenv)"; fi
+done
+if have brew; then
+  ok "Homebrew"
+elif [ "$OS" = Darwin ]; then
+  warn "Homebrew not found (it installs Node.js and llama.cpp)"
+  if confirm "Install Homebrew now? (official installer from brew.sh, it asks for your password)"; then
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do [ -x "$b" ] && eval "$("$b" shellenv)"; done
+    have brew || die "Homebrew did not install. See https://brew.sh"
+    ok "Homebrew installed"
+  else
+    die "install Homebrew from https://brew.sh, then run ./setup again"
+  fi
+else
+  warn "no Homebrew: Node.js and llama.cpp must be installed by hand if missing"
+fi
+
+step "uv (Python)"
+if have uv; then
+  ok "uv $(uv --version | awk '{print $2}')"
+elif have brew; then
+  brew_install "uv" uv
+else
+  if confirm "Install uv with the official installer (astral.sh)?"; then
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.local/bin:$PATH"
+    have uv || die "uv did not install. See https://docs.astral.sh/uv/"
+  else
+    die "uv is required: https://docs.astral.sh/uv/"
+  fi
+fi
+
+step "Node.js 22+"
+if have node && [ "$(node_major)" -ge 22 ]; then
+  ok "node $(node -v)"
+else
+  have node && warn "node $(node -v) is too old"
+  if have brew; then
+    brew_install "Node.js" node
+    hash -r
+    [ "$(node_major)" -ge 22 ] || die "an older node ($(node -v)) is still first on your PATH (nvm/fnm?). Switch to 22+ and run ./setup again."
+    ok "node $(node -v)"
+  else
+    die "install Node.js 22+ from https://nodejs.org (or: curl -fsSL https://fnm.vercel.app/install | bash && fnm install 22), then run ./setup again"
+  fi
+fi
+
+step "llama.cpp (runs the local LLM)"
+if have llama-server; then
+  ok "llama-server"
+elif have brew; then
+  brew_install "llama.cpp" llama.cpp
+  ok "llama-server"
+else
+  die "install llama.cpp (https://github.com/ggml-org/llama.cpp#quick-start), then run ./setup again"
+fi
+
+step "Game engine (Python 3.14 + packages)"
+uv sync --quiet || die "uv sync failed"
+ok "Python $(uv run --quiet python -c 'import sys; print(sys.version.split()[0])')"
+
+step "Game UI (npm packages)"
+(cd ui && npm install --no-fund --no-audit --silent) || die "npm install failed in ui/"
+ok "installed"
+
+if [ "$MODEL" = 1 ]; then
+  echo
+  uv run --quiet python main.py --download || die "model download failed (see llm-server.log). You can still play offline: ./play --offline"
+else
+  warn "skipped the model download: the first ./play will do it"
+fi
+
+echo
+printf '%sAll set!%s Start the game with %s./play%s %s(or double-click DnLLM.command)%s\n' "$C_OK" "$C_END" "$C_STEP" "$C_END" "$C_DIM" "$C_END"

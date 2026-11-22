@@ -171,7 +171,8 @@ def test_player_death_ends_the_game() -> None:
     game.player.hp = 1
     game.rng = AlwaysRoll(20, chance=1.0)  # everything crits, no stun procs
     game.player.attacks, game.player.inventory = [attack("Feather", "strength", ("0", "dull"))], []
-    assert game.handle({"type": "attack", "attack": 0}) == "game_over"
+    assert game.handle({"type": "attack", "attack": 0}) == "ending"
+    assert game.ending["kind"] == "defeat"
 
 
 def test_potion_heals_and_is_used_up() -> None:

@@ -12,4 +12,5 @@ export type MenuTab = {
 	id: string;
 	label: string;
 	Component: FC<TabProps>;
+	visible?: (state: GameState) => boolean; // hide the tab unless this returns true (e.g. debug only)
 };

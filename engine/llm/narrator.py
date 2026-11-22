@@ -90,3 +90,49 @@ class NarrationWorker(threading.Thread):
                 self.on_done(seq, self.narrator.narrate(request))
             except Exception:  # never kill the worker
                 log.exception("narration failed")
+
+
+# ---- epilogue ------------------------------------------------------------------
+
+EPILOGUE_PROMPT = (
+    "You are the game master of a dark fantasy dungeon crawler. The adventure is over. "
+    "Write its epilogue in 3 or 4 sentences, second person ('you'), based on what happened. "
+    "Only use the facts given. Answer only with JSON."
+)
+MAX_EPILOGUE = 600
+EPILOGUE_SCHEMA = {
+    "type": "object",
+    "properties": {"epilogue": {"type": "string", "maxLength": MAX_EPILOGUE, "examples": [""]}},
+    "required": ["epilogue"],
+}
+
+
+@dataclass
+class EpilogueRequest:
+    victory: bool
+    premise: str
+    chapters_done: list[str]
+    last_chapter: str
+    stats: dict
+    fallback: str  # used when the LLM is offline
+
+
+def write_epilogue(llm: LLMClient, request: EpilogueRequest) -> str:
+    outcome = "The party WON: the High Priest is dead and the Deep One sleeps." if request.victory else (
+        f"The party DIED in the chapter '{request.last_chapter}'. The cult goes on."
+    )
+    prompt = "\n".join(
+        [
+            f"Story: {request.premise}",
+            f"Chapters completed: {', '.join(request.chapters_done) or 'none'}.",
+            outcome,
+            f"Rooms explored: {request.stats.get('rooms')}, enemies slain: {request.stats.get('kills')}, "
+            f"turns: {request.stats.get('turns')}.",
+        ]
+    )
+    try:
+        reply = llm.complete_json(EPILOGUE_PROMPT, prompt, EPILOGUE_SCHEMA, max_tokens=220)
+    except LLMError as e:
+        log.warning("epilogue: LLM offline, using the fallback text: %s", e)
+        return request.fallback
+    return clean_story(reply.get("epilogue"), MAX_EPILOGUE) or request.fallback

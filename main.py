@@ -6,6 +6,13 @@
     ./play --port 8091     run/use the LLM on another port
     ./play --check         only check that everything is installed
 
+Dev options:
+    ./play --debug                 DEBUG tab (teleport, god mode, kill all, win/lose...) + debug HUD
+    ./play --chapter end           start at the last chapter (or --chapter 3); implies --debug
+    ./play --god                   start in god mode; implies --debug
+    ./play --fast                  no game master intros, instant text (this session only)
+    ./play --chapter end --god --fast --offline   straight to the boss, instantly
+
 Same as `uv run main.py ...`. Standard library only, so it runs before anything is installed.
 """
 
@@ -217,7 +224,16 @@ def main() -> None:
     parser.add_argument("--seed", type=int, help="seed for a repeatable dungeon")
     parser.add_argument("--port", type=int, default=8080, help="LLM server port (default 8080)")
     parser.add_argument("--check", action="store_true", help="only check that the tools are installed")
+    dev = parser.add_argument_group("dev options")
+    dev.add_argument("--debug", action="store_true", help="DEBUG tab (teleport, god mode, kill all, win/lose) + debug HUD")
+    dev.add_argument("--chapter", metavar="N|end", help="start at story chapter N, or 'end' for the final chapter (implies --debug)")
+    dev.add_argument("--god", action="store_true", help="start in god mode (implies --debug)")
+    dev.add_argument("--fast", action="store_true", help="skip game master intros and typing animations (this session only)")
     args = parser.parse_args()
+    if args.chapter is not None or args.god:
+        args.debug = True
+    if args.chapter is not None and not (args.chapter.isdigit() or args.chapter.lower() in ("end", "last", "boss", "final")):
+        parser.error("--chapter takes a number (1, 2, ...) or 'end'")
 
     print(color(LOGO, "95"))
     check_tools(need_llm=not args.offline)
@@ -237,6 +253,16 @@ def main() -> None:
         env["DNLLM_LLM_URL"] = url
     if args.seed is not None:
         env["DNLLM_SEED"] = str(args.seed)
+    if args.debug:
+        env["DNLLM_DEBUG"] = "1"
+        details = [f"chapter {args.chapter}" if args.chapter else "", "god mode" if args.god else ""]
+        step("Debug mode " + color(" ".join(d for d in details if d) or "(DEBUG tab in the menu)", "2"))
+    if args.chapter is not None:
+        env["DNLLM_START_CHAPTER"] = args.chapter
+    if args.god:
+        env["DNLLM_GOD"] = "1"
+    if args.fast:
+        env["DNLLM_FAST"] = "1"
 
     code = 0
     try:

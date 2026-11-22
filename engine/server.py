@@ -6,7 +6,11 @@ engine -> UI:  {"type": "loading", "message": str}            the LLM is working
                {"type": "narrating"}                         combat happened; the LLM is retelling it
                {"type": "narration", "text": str}           the retelling (arrives later, from a worker thread)
                {"type": "error", "message": str}
-When the player dies the engine sends the final state, then starts a new game (loading + state).
+When the run ends (victory or death) the engine sends the final state, then loading, then the state with
+state.ending filled in (LLM epilogue). {"type": "action", "action": {"type": "new_game"}} starts over.
+
+Env: DNLLM_SEED, DNLLM_LLM_URL, DNLLM_LOG_LEVEL, DNLLM_DEBUG=1 (debug actions, see engine/debug.py),
+DNLLM_START_CHAPTER=N|end (start the story at chapter N), DNLLM_GOD=1 (debug: start in god mode).
 
 stdout is reserved for protocol messages; logs go to stderr (the UI writes them to engine.log).
 Run standalone for debugging: uv run python -m engine.server
@@ -21,7 +25,8 @@ import threading
 
 from engine.game import Game
 from engine.llm.client import LlamaServerClient, RandomLLM
-from engine.llm.narrator import CombatNarrator, NarrationRequest, NarrationWorker
+from engine.llm.narrator import CombatNarrator, EpilogueRequest, NarrationRequest, NarrationWorker, write_epilogue
+from engine.story.campaign import chapter_index
 from engine.llm.room_director import RoomDirector
 
 log = logging.getLogger("engine.server")
@@ -81,12 +86,48 @@ def enter_next_room(game: Game, narration: "Narration | None" = None) -> None:
     send_state(game)
 
 
+def write_ending(game: Game, llm, narration: "Narration") -> None:
+    narration.invalidate()
+    send_state(game)  # show the final blow right away
+    send({"type": "loading", "message": "The game master writes the ending..."})
+    story = game.story
+    victory = game.ending["kind"] == "victory"
+    request = EpilogueRequest(
+        victory=victory,
+        premise=story.campaign.premise,
+        chapters_done=story.finished_titles() + ([story.chapter.title] if victory else []),
+        last_chapter=story.chapter.title,
+        stats=game.stats,
+        fallback=story.campaign.victory_text if victory else story.campaign.defeat_text,
+    )
+    game.ending["text"] = write_epilogue(llm if game.director.use_llm else _offline, request)
+    game.narration = game.ending["text"]
+    send_state(game)
+
+
+class _Offline:
+    """Stand-in LLM when LLM rooms are switched off in debug: makes write_epilogue use its fallback."""
+
+    def complete_json(self, *args, **kwargs):
+        from engine.llm.client import LLMError
+
+        raise LLMError("LLM switched off")
+
+
+_offline = _Offline()
+
+
 def main() -> None:
     level = os.environ.get("DNLLM_LOG_LEVEL", "INFO").upper()
     logging.basicConfig(stream=sys.stderr, level=level, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     seed = int(os.environ["DNLLM_SEED"]) if "DNLLM_SEED" in os.environ else None
     llm = LlamaServerClient(os.environ.get("DNLLM_LLM_URL", "http://127.0.0.1:8080"))
-    game = Game(RoomDirector(llm, fallback=RandomLLM(random.Random(seed))), seed=seed)
+    debug = os.environ.get("DNLLM_DEBUG") == "1"
+    start = chapter_index(os.environ["DNLLM_START_CHAPTER"]) if os.environ.get("DNLLM_START_CHAPTER") else 0
+    game = Game(RoomDirector(llm, fallback=RandomLLM(random.Random(seed))), seed=seed, debug=debug, start_chapter=start,
+                god=os.environ.get("DNLLM_GOD") == "1")
+    if debug:
+        log.info("debug mode, starting at chapter %d", start + 1)
     narration = Narration(game, CombatNarrator(llm))
 
     enter_next_room(game, narration)
@@ -100,8 +141,9 @@ def main() -> None:
             match game.handle(message.get("action", {})):
                 case "new_room":
                     enter_next_room(game, narration)
-                case "game_over":
-                    send_state(game)  # show the final blow
+                case "ending":
+                    write_ending(game, llm, narration)
+                case "new_game":
                     game.reset()
                     enter_next_room(game, narration)
                 case _:

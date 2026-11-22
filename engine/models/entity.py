@@ -22,6 +22,7 @@ class Entity:
     animation: str = "idle"  # which animation is playing now
     stats: Stats = field(default_factory=Stats)
     id: str = field(default_factory=_new_id)
+    template: str = ""  # catalog id it was spawned from ("goblin", "brass_key"); the story uses it for objectives
 
     @property
     def kind(self) -> str:

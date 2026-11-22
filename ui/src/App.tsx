@@ -2,6 +2,7 @@ import {useState} from 'react';
 import {Box, useWindowSize} from 'ink';
 import {useEngine} from './bridge/useEngine.js';
 import {Panel} from './components/Panel.js';
+import {EndingScreen} from './gm/EndingScreen.js';
 import {GameMasterScreen} from './gm/GameMasterScreen.js';
 import {useHoldKeys, usePress} from './input/keys.js';
 import {StatusBar} from './hud/StatusBar.js';
@@ -11,6 +12,7 @@ import {MenuBox} from './menu/MenuBox.js';
 import {MOVE_SPEEDS, useSettings} from './settings/settings.js';
 import {entityAt, tileAhead} from './state.js';
 import {LogText} from './story/LogText.js';
+import {QuestPanel} from './story/QuestPanel.js';
 import {StoryText} from './story/StoryText.js';
 import {FirstPersonView} from './view3d/FirstPersonView.js';
 
@@ -31,7 +33,7 @@ export function App() {
 	const roomKey = state ? `${state.run}:${state.room}` : '';
 	const showIntro = Boolean(state && settings.gmIntro && roomKey !== introSeen);
 
-	const playing = Boolean(state && !loading && !showIntro);
+	const playing = Boolean(state && !loading && !showIntro && !state.ending);
 	const step = MOVE_SPEEDS[settings.moveSpeed];
 
 	// Movement repeats at a steady `step` while held (input/holdRepeat.ts). An action only goes out when
@@ -58,14 +60,22 @@ export function App() {
 		const text = loading ?? message;
 		return <GameMasterScreen mode="thinking" width={columns} height={rows} message={text} showLogo={!state} />;
 	}
+	if (state.ending) {
+		return state.ending.text ? (
+			<EndingScreen state={state} width={columns} height={rows} onNewGame={() => dispatch({type: 'new_game'})} />
+		) : (
+			<GameMasterScreen mode="thinking" width={columns} height={rows} message="The game master writes the ending..." showLogo={false} />
+		);
+	}
 	if (showIntro) {
 		return (
 			<GameMasterScreen
 				mode="speaking"
 				width={columns}
 				height={rows}
-				room={state.room}
+				chapter={`CHAPTER ${state.story.chapter} OF ${state.story.chapter_count} · ${state.story.chapter_title}`}
 				roomName={state.map.name}
+				goal={state.story.objective.text}
 				text={narration}
 				onContinue={() => setIntroSeen(roomKey)}
 			/>
@@ -95,7 +105,7 @@ export function App() {
 			<Box height={worldHeight}>
 				<Box flexDirection="column" flexGrow={1}>
 					<Panel
-						title={`Room ${state.room} · ${state.map.name}`}
+						title={`${state.story.chapter}/${state.story.chapter_count} · ${state.map.name}`}
 						subtitle={aheadText && `ahead: ${aheadText}`}
 						color={enemyAhead ? 'red' : 'cyan'}
 						titleColor={enemyAhead ? 'redBright' : 'cyanBright'}
@@ -117,6 +127,9 @@ export function App() {
 					<Panel title="Map" color="blue" titleColor="blueBright" flexShrink={0}>
 						<Minimap state={state} width={SIDE_WIDTH - PANEL_CHROME_X} height={MINIMAP_HEIGHT} />
 					</Panel>
+					<Panel title="Quest" color="yellow" titleColor="yellowBright" flexShrink={0}>
+						<QuestPanel story={state.story} />
+					</Panel>
 					<Panel title="Game Master" color="magenta" titleColor="magentaBright" flexGrow={1}>
 						<StoryText narration={narration} narrating={narrating} />
 					</Panel>
@@ -126,7 +139,7 @@ export function App() {
 				</Box>
 			</Box>
 			<MenuBox state={state} dispatch={dispatch} height={menuHeight} />
-			<StatusBar player={player} room={state.room} width={columns} />
+			<StatusBar player={player} state={state} width={columns} />
 		</Box>
 	);
 }

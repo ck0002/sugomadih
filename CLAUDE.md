@@ -22,7 +22,7 @@ Python engine  ──(choices list)──▶  small LLM  ──(structured pick 
 ```
 DnLLM/
 ├── CLAUDE.md                 this file
-├── play                      LAUNCHER: ./play [--offline] [--seed N] [--port P] [--check]  (runs main.py via uv)
+├── play                      LAUNCHER: ./play [--offline] [--seed N] [--port P] [--check] [--debug] [--chapter N|end] [--god] [--fast]
 ├── DnLLM.command             double-click launcher for macOS Finder (calls ./play)
 ├── main.py                   launcher logic: checks tools, npm install on first run, starts/reuses llama-server, runs the UI, stops what it started
 ├── llm-server.log            llama-server output when the launcher started it (gitignored)
@@ -33,10 +33,12 @@ DnLLM/
 │   └── llm-server.sh         starts llama-server with Qwen3.5 2B on :8080
 ├── tests/
 │   ├── test_engine.py        mapgen invariants, LLM plan parsing/fallback, walk-to-exit, pickup, JSON shape
-│   └── test_combat.py        damage type tree, resistances, crits, statuses, enemy AI, death, potions
+│   ├── test_combat.py        damage type tree, resistances, crits, statuses, enemy AI, death, potions
+│   └── test_story.py         campaign rooms, sealed exits, every objective kind, boss victory, epilogue, debug commands
 ├── engine/                   Python game logic: all the rules live here
 │   ├── server.py             BRIDGE to the UI: JSON lines over stdin/stdout (protocol in its docstring); runs the narrator thread
-│   ├── game.py               Game: party, entities, map, log, next_room(), handle(action) -> ok/new_room/game_over, turn loop, to_dict()
+│   ├── game.py               Game: party, entities, map, story, ending, stats, next_room(), handle(action) -> ok/new_room/ending/new_game, to_dict()
+│   ├── debug.py              dev commands (teleport, complete, kill_all, heal, god, give_weapons, win/lose, llm_rooms), only with DNLLM_DEBUG=1
 │   ├── models/               game objects (dataclasses), exported from __init__.py
 │   │   ├── stats.py          Stats: 6 ability scores + max_hp; also used for item buffs; Stats + Stats sums fields
 │   │   ├── entity.py         Entity base: name, description, art (animations), animation, stats, id, play(), to_dict(); to_json()
@@ -44,13 +46,16 @@ DnLLM/
 │   │   ├── character.py      Character(Entity): hostile, dialogue, inventory, hp, attacks, resistances, statuses, available_attacks(), armor_class()
 │   │   └── world.py          tile chars (WALL/FLOOR/DOOR/WATER/EXIT), Direction, Placement, MapState
 │   ├── data/
-│   │   ├── catalog.py        EVERYTHING THE LLM CAN SPAWN: ENEMIES, NPCS, ITEMS (Spawnable id+blurb+make), THEMES, LAYOUTS, FEATURES, make_party()
+│   │   ├── catalog.py        EVERYTHING THE LLM CAN SPAWN: ENEMIES, NPCS, ITEMS (Spawnable id+blurb+make/spawn), BOSSES (story only), THEMES, LAYOUTS, FEATURES, spawnable(id), make_party()
 │   │   └── sprites.py        ASCII animations for every entity (art/hold/put/blink helpers)
 │   ├── llm/
 │   │   ├── client.py         LLMClient protocol, LlamaServerClient (json_schema constrained), RandomLLM (offline/tests), LLMError
 │   │   ├── room_director.py  room_schema() + room_prompt() from the catalog, parse_room_plan() validation, RoomDirector (LLM -> fallback)
-│   │   ├── narrator.py       CombatNarrator (retells a turn's combat events) + NarrationWorker thread (newest request wins)
+│   │   ├── narrator.py       CombatNarrator (retells a turn's combat events) + NarrationWorker thread (newest request wins); write_epilogue()
 │   │   └── text.py           clean_story(): trims LLM story text to the last full sentence
+│   ├── story/                THE CAMPAIGN
+│   │   ├── campaign.py       CAMPAIGN "The Dreaming Deep": premise + 6 Chapters (objective, LLM guidance, themes, required spawns, NPC lines); chapter_index()
+│   │   └── progress.py       StoryProgress: current chapter, objective check, sealed exit, journal, to_dict()
 │   ├── combat/               FIGHTING
 │   │   ├── damage.py         DamageType (abstract) -> PhysicalDamage/MagicDamage (abstract) -> Sharp, Dull, Piercing, Fire, Water; @register, DAMAGE_TYPES
 │   │   ├── attacks.py        DamageRoll(dice, type id), Attack(name, damage[], stat), attack() shorthand, UNARMED
@@ -82,13 +87,15 @@ DnLLM/
         ├── settings/
         │   └── settings.tsx  Settings (typingSpeed, gmIntro, moveSpeed, smoothCamera), TYPING_SPEEDS, MOVE_SPEEDS, SettingsProvider/useSettings/useTypingCps, saved to .dnllm-settings.json
         ├── gm/
-        │   ├── GameMasterScreen.tsx  full-screen GM card: "thinking" (LLM working, logo on first load) / "speaking" (typed room intro)
-        │   └── art.ts        LOGO + hooded GM frames (idle, blink, talking, thinking)
+        │   ├── GameMasterScreen.tsx  full-screen GM card: "thinking" (LLM working, logo on first load) / "speaking" (typed chapter + room intro + goal)
+        │   ├── EndingScreen.tsx  VICTORY/DEFEAT banner, typed epilogue, run stats; enter = new game
+        │   └── art.ts        LOGO, VICTORY, DEFEAT + hooded GM frames (idle, blink, talking, thinking)
         ├── hud/
         │   └── StatusBar.tsx bottom line: HP, AC, weapon, statuses, room + keycap hints
         ├── story/
         │   ├── StoryText.tsx Game Master panel: latest narration, typed; "the game master writes..." while narrating
-        │   └── LogText.tsx   combat/event log under the 3D view (fresh lines bright)
+        │   ├── LogText.tsx   combat/event log under the 3D view (fresh lines bright)
+        │   └── QuestPanel.tsx  current chapter, objective ☐/☑, chapter track ●─◆─○, exit sealed/open
         ├── combat/
         │   └── DamageText.tsx  DamageText (coloured "1d6 sharp + 1d4 fire"), Effectiveness (×2 weak), StatusList
         ├── components/       reusable building blocks
@@ -115,8 +122,10 @@ DnLLM/
             ├── types.ts      MenuTab / TabProps
             └── tabs/         one file per tab; index.ts holds the TABS list
                 ├── FightTab.tsx  pick an attack, see target HP/AC/statuses and how effective it is
-                ├── ItemsTab.tsx (enter: ready weapon / drink potion), PartyTab.tsx, OptionsTab.tsx (New room / Save / Load / Quit)
+                ├── ItemsTab.tsx (enter: ready weapon / drink potion), PartyTab.tsx, OptionsTab.tsx (Save / Load / Quit)
                 ├── SettingsTab.tsx  enter cycles a setting (typing speed, move speed, smooth camera, GM intro)
+                ├── StoryTab.tsx  chapters + journal of the highlighted chapter
+                ├── DebugTab.tsx  dev commands; only visible when state.debug (./play --debug)
                 └── index.ts
 ```
 
@@ -133,6 +142,10 @@ DnLLM/
 | New weapon / enemy attack / resistances | `_weapon(...)` / `_enemy(..., attacks, resist)` in `engine/data/catalog.py` |
 | Player spells | `attacks=[...]` in `make_party()` in `engine/data/catalog.py` |
 | Enemy behaviour | `engine/combat/ai.py` |
+| The story (chapters, goals, NPC lines, ending texts) | `CAMPAIGN` in `engine/story/campaign.py` |
+| New objective kind | `ObjectiveKind` in `campaign.py` + `StoryProgress.check()` in `engine/story/progress.py` |
+| New boss | `BOSSES` in `engine/data/catalog.py` + sprite, then list it in a chapter's `enemies` |
+| New dev/debug command | `engine/debug.py` + a row in `ui/src/menu/tabs/DebugTab.tsx` |
 | What the LLM is told / asked | `SYSTEM_PROMPT`, `room_prompt()`, `room_schema()` in `engine/llm/room_director.py` |
 | New player action | `Action` in `ui/src/types.ts` + `Game.handle()` in `engine/game.py` |
 | Game rules | `engine/rules/` (movement is in `movement.py`) |
@@ -158,7 +171,22 @@ DnLLM/
 - Movement is on the grid: step forward or back, turn 90°. Walking onto an item picks it up. Walking into an enemy attacks it; walking into an NPC shows a dialogue line.
 - Sprites: `art` is `{animationName: frames[]}`, where each frame is a multi-line ASCII string. Every entity has `idle`, and `animation` names the one playing now (Python: `entity.play("attack")`). The UI loops frames at 8 fps (16 frames = 2 s), and each entity starts at a different point in its loop based on its id. In 3D, spaces outside the drawing are see-through, and art is scaled by whole numbers (at most 3×) using the size of its biggest frame. Sprites are sized as if they were 0.5 tiles further away (`SPRITE_DISTANCE_BIAS`) and step down a size until they fit on screen. The field of view adapts to the view's shape (60–90°), so things up close never go off-screen.
 - `party[0]` is the player. Party members travel with the player and aren't placed on the map. Characters also carry `total_stats` (base + item buffs) for the UI.
-- GameState = `{room, party, entities, map, log, log_fresh, damage_types}` from `Game.to_dict()`.
+- GameState = `{room, run, party, entities, map, story, ending, stats, debug, log, log_fresh, damage_types}` from `Game.to_dict()`.
+
+### Story
+
+- One room = one chapter of `CAMPAIGN` (6 chapters, ending in a boss fight with the High Priest). Each chapter has an objective: `reach_exit`, `collect` (item), `talk` (NPC), `defeat_all`, `defeat_boss`.
+- The LLM still designs the room, but `room_prompt()` adds the premise, the story so far, the chapter's guidance and goal, and the things guaranteed to be there. The schema only offers the chapter's themes. Python then adds the chapter's required enemies/NPCs/items (always placed first) and story NPC lines (said in order).
+- The exit (`>`) stays sealed until the objective is done (`StoryProgress.exit_open()`). Walking out advances to the next chapter.
+- The run ends with `game.ending`: victory when the last objective is done, defeat when the player dies. The server then asks the LLM for an epilogue (`write_epilogue`, fallback texts in the campaign) and the UI shows the ending screen. Enter sends `new_game`.
+- The journal (`story.journal`) collects room narrations, NPC lines and completed goals; the STORY tab shows it per chapter.
+
+### Dev tools
+
+- `./play --debug`: DEBUG tab (teleport to any chapter, complete objective, kill all, heal, god mode, give weapons, reroll room, LLM rooms on/off, win/lose) and a debug badge in the status bar (position, god, `rnd` = random room).
+- `./play --chapter end` (or `--chapter 3`) starts there; `--god` starts in god mode; both imply `--debug`. `--fast` skips GM intros and typing for that session. `--offline` skips the LLM entirely.
+- Fastest way to check the ending: `./play --chapter end --god --fast --offline`, then DEBUG → Win now / Complete objective (or just kill the High Priest).
+- Engine env equivalents: `DNLLM_DEBUG=1`, `DNLLM_START_CHAPTER=N|end`, `DNLLM_GOD=1`; UI: `DNLLM_FAST=1`.
 
 ### Screen flow and story
 
@@ -189,7 +217,8 @@ DnLLM/
 
 ### Engine <-> UI protocol (JSON lines over stdio)
 
-- UI -> engine: `{"type": "action", "action": Action}`.
+- UI -> engine: `{"type": "action", "action": Action}` (incl. `{"type": "new_game"}` and, in debug, `{"type": "debug", "command", ...}`).
+- When the run ends the engine sends the state with `ending.text == ""`, then `loading`, then the state with the epilogue.
 - Engine -> UI: `{"type": "loading", "message"}` while the LLM builds a room, `{"type": "state", "state", "narration", "message"}` after every action, `{"type": "narrating"}` + later `{"type": "narration", "text"}` when combat happened (sent from the narrator thread), and `{"type": "error", "message"}`.
 - The UI takes `narration` from a state message only when the room changes (`run:room` key); during play the newer `narration` messages win.
 - The engine's stdout is only for protocol messages. Logs go to stderr, and the UI writes them to `engine.log`.
@@ -198,6 +227,7 @@ DnLLM/
 
 - **Play:** `./play` (or double-click `DnLLM.command`). It checks node 22+, npm, uv and llama-server, runs `npm install` in `ui/` on first run, reuses a llama-server already answering on the port or starts `scripts/llm-server.sh` itself (waiting for `/health`, with download progress on the very first run), then runs the UI. When the game exits (q or Ctrl+C) it stops the LLM server only if it started it.
   - `./play --offline`: no LLM (random rooms, raw combat log as narration). `--seed N`: repeatable dungeon. `--port P`: LLM port. `--check`: only check the tools.
+  - Dev: `--debug`, `--chapter N|end`, `--god`, `--fast` (see "Dev tools" above).
 - Manual: `./scripts/llm-server.sh` in one terminal, `cd ui && npm run dev` in another (the UI starts the Python engine itself).
 - Engine alone (debug): `uv run python -m engine.server`, then type action JSON lines. `DNLLM_SEED=1` makes it deterministic, and `DNLLM_LLM_URL` points it at another server.
 - Tests: `uv run pytest -q` (engine) and `cd ui && npm test` (UI logic). Typecheck UI: `cd ui && npm run typecheck`.

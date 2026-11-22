@@ -323,3 +323,35 @@ FLAMING_SWORD = {
     + hold(put(put(_flaming_sword, 0, 1, ")"), 0, 4, "("), 3)
     + hold(put(put(_flaming_sword, 2, 1, "("), 2, 4, ")"), 3)
 }
+
+# ---- bosses ------------------------------------------------------------------
+
+_priest = art(r"""
+    _/^\_
+   / o o \
+   \  ~  /
+  __|___|__ *
+ /  | ~ |  \|
+/   |   |   |
+    |___|   |
+   /     \
+""")
+_priest_cast = art(r"""
+    _/^\_   \ | /
+   / * * \  -(*)-
+   \  O  /  / | \
+  __|___|__/
+ /  | ~ |
+/   |   |
+    |___|
+   /     \
+""")
+DEEP_PRIEST = {
+    "idle": hold(_priest, 8)
+    + hold(blink(_priest, 1, 5, 7, ch="-"), 2)
+    + hold(_priest, 4)
+    + hold(put(_priest, 3, 12, "+"), 2)
+    + hold(put(_priest, 3, 12, "x"), 2)
+    + hold(_priest, 2),
+    "attack": hold(_priest, 2) + hold(blink(_priest, 1, 5, 7, ch="*"), 3) + hold(_priest_cast, 8) + hold(_priest, 3),
+}

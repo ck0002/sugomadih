@@ -50,5 +50,11 @@ export function SettingsProvider({children}: {children: ReactNode}) {
 	return <SettingsContext value={{settings, update}}>{children}</SettingsContext>;
 }
 
-export const useSettings = () => useContext(SettingsContext);
+// ./play --fast (dev): skip intros and typing for this session without touching the saved settings.
+const FAST = process.env['DNLLM_FAST'] === '1';
+
+export const useSettings = () => {
+	const ctx = useContext(SettingsContext);
+	return FAST ? {...ctx, settings: {...ctx.settings, gmIntro: false, typingSpeed: 'instant' as const}} : ctx;
+};
 export const useTypingCps = () => TYPING_SPEEDS[useSettings().settings.typingSpeed];

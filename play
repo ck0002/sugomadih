@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# DnLLM launcher. ./play --help for options.
+cd "$(dirname "$0")" || exit 1
+if command -v uv >/dev/null 2>&1; then
+  exec uv run --quiet python main.py "$@"
+fi
+# No uv: the launcher only needs the standard library; the game itself needs uv for the engine.
+echo "uv not found: install it with 'brew install uv' (needed to run the game engine)." >&2
+exit 1

@@ -11,6 +11,7 @@ from engine.data.catalog import ENEMIES, FEATURES, ITEMS, LAYOUTS, NPCS, THEMES
 from engine.llm.client import LLMClient, LLMError
 from engine.llm.text import clean_story
 from engine.models import Character
+from engine.story.campaign import CAMPAIGN, Chapter
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +43,10 @@ class RoomContext:
     room_number: int
     party: list[Character]
     previous_room: str | None = None
+    chapter: Chapter | None = None  # the story chapter this room belongs to (engine/story/campaign.py)
+    chapter_number: int = 0  # 1-based
+    chapter_count: int = 0
+    story_so_far: list[str] = field(default_factory=list)  # titles of finished chapters
 
 
 @dataclass
@@ -57,8 +62,11 @@ class RoomPlan:
     source: str = "llm"  # "llm" or "fallback"
 
 
-def room_schema() -> dict:
-    """JSON schema for the LLM's reply. Choices come first so the narration can describe them."""
+def room_schema(chapter: Chapter | None = None) -> dict:
+    """JSON schema for the LLM's reply. Choices come first so the narration can describe them.
+    A story chapter narrows the themes and the number of enemies."""
+    themes = list(chapter.themes) if chapter else list(THEMES)
+    max_enemies = chapter.max_enemies if chapter else MAX_ENEMIES
 
     def ids(options: dict, max_items: int) -> dict:
         return {"type": "array", "items": {"enum": list(options)}, "maxItems": max_items}
@@ -66,10 +74,10 @@ def room_schema() -> dict:
     return {
         "type": "object",
         "properties": {
-            "theme": {"enum": list(THEMES)},
+            "theme": {"enum": themes},
             "layout": {"enum": list(LAYOUTS)},
             "features": ids(FEATURES, MAX_FEATURES),
-            "enemies": ids(ENEMIES, MAX_ENEMIES),
+            "enemies": ids(ENEMIES, max_enemies),
             "npcs": ids(NPCS, MAX_NPCS),
             "items": ids(ITEMS, MAX_ITEMS),
             "name": {"type": "string", "maxLength": MAX_NAME, "examples": FALLBACK_NAMES},
@@ -84,6 +92,8 @@ def room_prompt(ctx: RoomContext) -> str:
         return f"{title}: " + "; ".join(f"{k} ({v.blurb if hasattr(v, 'blurb') else v})" for k, v in d.items())
 
     party = ", ".join(f"{c.name} (hp {c.hp}/{c.total_stats().max_hp})" for c in ctx.party)
+    if ctx.chapter:
+        return story_room_prompt(ctx, party, options)
     if ctx.room_number <= 1:
         difficulty = "This is the first room: keep it gentle (0-1 weak enemies)."
     elif ctx.room_number <= 3:
@@ -104,7 +114,29 @@ def room_prompt(ctx: RoomContext) -> str:
     return "\n".join(lines)
 
 
-def parse_room_plan(raw: object, source: str = "llm") -> RoomPlan:
+def story_room_prompt(ctx: RoomContext, party: str, options) -> str:
+    ch = ctx.chapter
+    assert ch is not None
+    guaranteed = [*ch.enemies, *ch.npcs, *ch.items]
+    return "\n".join(
+        [
+            f"Story: {CAMPAIGN.premise}",
+            f"So far: {', '.join(ctx.story_so_far)}." if ctx.story_so_far else "This is the start of the adventure.",
+            f"Chapter {ctx.chapter_number} of {ctx.chapter_count}: {ch.title}. {ch.guidance}",
+            f"The party's goal in this room: {ch.objective.text}.",
+            f"Already in the room (mention them, don't pick them again): {', '.join(guaranteed)}." if guaranteed else "",
+            f"Party: {party}. At most {ch.max_enemies} extra enemies.",
+            options("Themes", {t: THEMES[t] for t in ch.themes}),
+            options("Layouts", LAYOUTS),
+            options("Features (0-2)", FEATURES),
+            options("Enemies", ENEMIES),
+            options("NPCs (rare, 0-1)", NPCS),
+            options("Items (0-3)", ITEMS),
+        ]
+    ).replace("\n\n", "\n")
+
+
+def parse_room_plan(raw: object, source: str = "llm", chapter: Chapter | None = None) -> RoomPlan:
     """Validate an LLM reply. Never raises: unknown ids are dropped, missing fields get defaults."""
     data = raw if isinstance(raw, dict) else {}
 
@@ -133,9 +165,9 @@ def parse_room_plan(raw: object, source: str = "llm") -> RoomPlan:
         name=text("name", MAX_NAME, FALLBACK_NAMES[0]),
         narration=story("narration", MAX_NARRATION, FALLBACK_NARRATIONS[0]),
         layout=pick("layout", LAYOUTS, "hall"),
-        theme=pick("theme", THEMES, "cellar"),
+        theme=pick("theme", {t: 1 for t in chapter.themes} if chapter else THEMES, chapter.themes[0] if chapter else "cellar"),
         features=pick_many("features", FEATURES, MAX_FEATURES, unique=True),
-        enemies=pick_many("enemies", ENEMIES, MAX_ENEMIES),
+        enemies=pick_many("enemies", ENEMIES, chapter.max_enemies if chapter else MAX_ENEMIES),
         npcs=pick_many("npcs", NPCS, MAX_NPCS, unique=True),
         items=pick_many("items", ITEMS, MAX_ITEMS),
         source=source,
@@ -148,11 +180,13 @@ class RoomDirector:
     def __init__(self, llm: LLMClient, fallback: LLMClient):
         self.llm = llm
         self.fallback = fallback
+        self.use_llm = True  # debug: turn off to get instant random rooms
 
     def plan(self, ctx: RoomContext) -> RoomPlan:
-        schema, prompt = room_schema(), room_prompt(ctx)
-        try:
-            return parse_room_plan(self.llm.complete_json(SYSTEM_PROMPT, prompt, schema), "llm")
-        except LLMError as e:
-            log.warning("LLM failed, using fallback room: %s", e)
-            return parse_room_plan(self.fallback.complete_json(SYSTEM_PROMPT, prompt, schema), "fallback")
+        schema, prompt = room_schema(ctx.chapter), room_prompt(ctx)
+        if self.use_llm:
+            try:
+                return parse_room_plan(self.llm.complete_json(SYSTEM_PROMPT, prompt, schema), "llm", ctx.chapter)
+            except LLMError as e:
+                log.warning("LLM failed, using fallback room: %s", e)
+        return parse_room_plan(self.fallback.complete_json(SYSTEM_PROMPT, prompt, schema), "fallback", ctx.chapter)

@@ -98,9 +98,38 @@ export type GameState = {
 	party: Character[]; // party[0] is the player
 	entities: Record<string, Entity>; // everything on the map, by id
 	map: MapState;
+	story: StoryState;
+	ending: Ending | null; // set when the run is over (victory or defeat); text = the LLM's epilogue
+	stats: {rooms: number; turns: number; kills: number; damage_dealt: number};
+	debug: DebugInfo | null; // only when the engine runs with --debug
 	log: string[]; // combat / event log, newest last
 	log_fresh: number; // how many of the last log lines came from the last action
 	damage_types: Record<string, DamageTypeInfo>;
+};
+
+// ---- story (engine/story) ----
+
+export type ChapterStatus = 'done' | 'current' | 'locked';
+
+export type StoryState = {
+	title: string;
+	chapter: number; // 1-based
+	chapter_count: number;
+	chapter_title: string;
+	objective: {text: string; kind: string; done: boolean};
+	exit_open: boolean;
+	chapters: {title: string; objective: string; status: ChapterStatus}[];
+	journal: {chapter: number; title: string; text: string}[];
+};
+
+export type Ending = {kind: 'victory' | 'defeat'; title: string; text: string};
+
+export type DebugInfo = {
+	god: boolean;
+	llm_rooms: boolean;
+	room_source: string | null; // "llm" | "fallback"
+	seed: number | null;
+	player: [number, number, Direction] | null;
 };
 
 // What the UI sends to the Python engine when the player does something (engine/game.py handle()).
@@ -110,4 +139,6 @@ export type Action =
 	| {type: 'attack'; attack: number} // index into the player's available_attacks, at the tile ahead
 	| {type: 'use_item'; itemId: string}
 	| {type: 'inspect'; entityId: string}
-	| {type: 'option'; option: string};
+	| {type: 'option'; option: string}
+	| {type: 'new_game'}
+	| {type: 'debug'; command: string; chapter?: number | 'end'}; // engine/debug.py, only with --debug

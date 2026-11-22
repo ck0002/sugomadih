@@ -19,6 +19,12 @@ class Spawnable:
     blurb: str  # one line the LLM reads when choosing
     make: Callable[[], Entity]
 
+    def spawn(self) -> Entity:
+        """A fresh entity tagged with this catalog id (entity.template)."""
+        entity = self.make()
+        entity.template = self.id
+        return entity
+
 
 def _enemy(
     name: str, desc: str, art: dict, stats: Stats, line: str, attacks: list[Attack], resist: dict[str, float] | None = None
@@ -83,6 +89,19 @@ ENEMIES = {
             Stats(strength=10, dexterity=12, intelligence=14, max_hp=16), "The Deep One wakes!",
             [attack("Hellfire", "intelligence", ("1d8", "fire")), attack("Ritual Knife", "dexterity", ("1d4", "sharp"))],
             {"magic": 0.5, "water": 1.5},
+        )),
+    ]
+}
+
+# Story bosses: only spawned by the campaign (engine/story), never offered to the LLM.
+BOSSES = {
+    s.id: s
+    for s in [
+        Spawnable("deep_priest", "the High Priest of the Deep, final boss", _enemy(
+            "High Priest", "Robes heavy with seawater. Eyes like drowned lanterns.", sp.DEEP_PRIEST,
+            Stats(strength=12, dexterity=10, intelligence=15, max_hp=32), "The Deep One dreams of you.",
+            [attack("Tidal Curse", "intelligence", ("1d8", "water")), attack("Abyssal Flame", "intelligence", ("1d6", "fire"))],
+            {"magic": 0.5, "dull": 1.5},
         )),
     ]
 }
@@ -170,3 +189,11 @@ def make_party() -> list[Character]:
         dialogue=["Stay behind me, lad."],
     )
     return [player, brena]
+
+
+def spawnable(spawn_id: str) -> Spawnable:
+    """Look up any catalog id (enemy, boss, NPC or item)."""
+    for catalog in (ENEMIES, BOSSES, NPCS, ITEMS):
+        if spawn_id in catalog:
+            return catalog[spawn_id]
+    raise KeyError(f"unknown spawn id {spawn_id!r}")

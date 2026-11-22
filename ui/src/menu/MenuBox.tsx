@@ -13,23 +13,25 @@ type Props = {
 
 // Bottom menu: tab bar (left/right to switch) + the active tab's content.
 export function MenuBox({state, dispatch, height}: Props) {
+	const tabs = TABS.filter(t => t.visible?.(state) ?? true);
 	const [active, setActive] = useState(0);
 
 	usePress((_input, key) => {
-		if (key.leftArrow) setActive(i => (i - 1 + TABS.length) % TABS.length);
-		if (key.rightArrow) setActive(i => (i + 1) % TABS.length);
+		if (key.leftArrow) setActive(i => (i - 1 + tabs.length) % tabs.length);
+		if (key.rightArrow) setActive(i => (i + 1) % tabs.length);
 	});
 
-	const tab = TABS[active]!;
+	const current = Math.min(active, tabs.length - 1);
+	const tab = tabs[current]!;
 
 	return (
 		<Panel title="Menu" subtitle="← →" color="yellow" titleColor="yellowBright" height={height} flexShrink={0}>
 			<Box marginBottom={1}>
-				{TABS.map((t, i) => (
+				{tabs.map((t, i) => (
 					<Text key={t.id}>
 						{i > 0 && <Text color="gray"> │ </Text>}
-						<Text bold={i === active} inverse={i === active} color={i === active ? 'yellowBright' : 'gray'}>
-							{i === active ? ` ◆ ${t.label} ` : ` ${t.label} `}
+						<Text bold={i === current} inverse={i === current} color={i === current ? 'yellowBright' : 'gray'}>
+							{i === current ? ` ◆ ${t.label} ` : ` ${t.label} `}
 						</Text>
 					</Text>
 				))}

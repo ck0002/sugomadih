@@ -10,7 +10,16 @@ const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', 
 
 type Props =
 	| {mode: 'thinking'; width: number; height: number; message: string; showLogo: boolean}
-	| {mode: 'speaking'; width: number; height: number; room: number; roomName: string; text: string; onContinue: () => void};
+	| {
+			mode: 'speaking';
+			width: number;
+			height: number;
+			chapter: string; // "CHAPTER 2 OF 6 · The Sealed Crypt"
+			roomName: string;
+			goal: string;
+			text: string;
+			onContinue: () => void;
+	  };
 
 // Full-screen "the game master speaks" card, shown before every room (and while the LLM is working).
 export function GameMasterScreen(props: Props) {
@@ -46,7 +55,9 @@ function Thinking({message}: {message: string}) {
 	);
 }
 
-function Speaking({room, roomName, text, onContinue}: {room: number; roomName: string; text: string; onContinue: () => void}) {
+type SpeakingProps = {chapter: string; roomName: string; goal: string; text: string; onContinue: () => void};
+
+function Speaking({chapter, roomName, goal, text, onContinue}: SpeakingProps) {
 	const tick = useTick();
 	const {shown, done, skip} = useTypewriter(text, useTypingCps());
 
@@ -68,10 +79,11 @@ function Speaking({room, roomName, text, onContinue}: {room: number; roomName: s
 				<Text color="magenta">{face}</Text>
 			</Box>
 			<Box flexDirection="column" flexGrow={1} flexShrink={1}>
-				<Text dimColor>{`ROOM ${room}`}</Text>
+				<Text dimColor>{chapter}</Text>
 				<Text bold color="yellow">
 					{roomName}
 				</Text>
+				<Text color="cyan">{`Goal: ${goal}`}</Text>
 				<Box marginTop={1} flexGrow={1}>
 					<Text>
 						{shown}

@@ -22,6 +22,7 @@ Python engine  ──(choices list)──▶  small LLM  ──(structured pick 
 ```
 DnLLM/
 ├── CLAUDE.md                 this file
+├── setup                     FIRST-TIME SETUP: installs Homebrew (macOS) / uv / Node 22+ / llama.cpp if missing, uv sync, npm install, downloads the model. --yes, --no-model
 ├── play                      LAUNCHER: ./play [--offline] [--seed N] [--port P] [--check] [--debug] [--chapter N|end] [--god] [--fast]
 ├── DnLLM.command             double-click launcher for macOS Finder (calls ./play)
 ├── main.py                   launcher logic: checks tools, npm install on first run, starts/reuses llama-server, runs the UI, stops what it started
@@ -225,8 +226,9 @@ DnLLM/
 
 ## Running
 
+- **First time on a new machine:** `./setup` (asks before installing anything; `--yes` to skip the questions, `--no-model` to skip the 1.3 GB download). macOS and Linux; on Windows use WSL. Safe to re-run.
 - **Play:** `./play` (or double-click `DnLLM.command`). It checks node 22+, npm, uv and llama-server, runs `npm install` in `ui/` on first run, reuses a llama-server already answering on the port or starts `scripts/llm-server.sh` itself (waiting for `/health`, with download progress on the very first run), then runs the UI. When the game exits (q or Ctrl+C) it stops the LLM server only if it started it.
-  - `./play --offline`: no LLM (random rooms, raw combat log as narration). `--seed N`: repeatable dungeon. `--port P`: LLM port. `--check`: only check the tools.
+  - `./play --offline`: no LLM (random rooms, raw combat log as narration). `--seed N`: repeatable dungeon. `--port P`: LLM port. `--check`: only check the tools. `--download`: download the model and exit (used by `./setup`).
   - Dev: `--debug`, `--chapter N|end`, `--god`, `--fast` (see "Dev tools" above).
 - Manual: `./scripts/llm-server.sh` in one terminal, `cd ui && npm run dev` in another (the UI starts the Python engine itself).
 - Engine alone (debug): `uv run python -m engine.server`, then type action JSON lines. `DNLLM_SEED=1` makes it deterministic, and `DNLLM_LLM_URL` points it at another server.

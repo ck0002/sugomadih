@@ -10,3 +10,4 @@ wheels/
 .venv
 engine.log
 .dnllm-settings.json
+llm-server.log

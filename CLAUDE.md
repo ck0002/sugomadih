@@ -22,7 +22,10 @@ Python engine  ──(choices list)──▶  small LLM  ──(structured pick 
 ```
 DnLLM/
 ├── CLAUDE.md                 this file
-├── main.py                   Python entry point (still a stub; the UI starts engine.server itself)
+├── play                      LAUNCHER: ./play [--offline] [--seed N] [--port P] [--check]  (runs main.py via uv)
+├── DnLLM.command             double-click launcher for macOS Finder (calls ./play)
+├── main.py                   launcher logic: checks tools, npm install on first run, starts/reuses llama-server, runs the UI, stops what it started
+├── llm-server.log            llama-server output when the launcher started it (gitignored)
 ├── pyproject.toml, uv.lock   Python project (uv, Python 3.14, pytest as dev dep)
 ├── engine.log                engine stderr while the UI runs (gitignored)
 ├── .dnllm-settings.json      player settings saved by the UI (gitignored)
@@ -145,6 +148,7 @@ DnLLM/
 | Movement feel (step rate, hold detection) | `MOVE_SPEEDS` in `settings.tsx`; `MIN_RELEASE_MS` etc. in `ui/src/input/holdRepeat.ts`; bindings in `useHoldKeys` call in `App.tsx` |
 | Animation speed | `FPS` in `ui/src/render/animation.tsx` |
 | LLM model or server flags | `scripts/llm-server.sh` |
+| Launcher (checks, startup, cleanup, flags) | `main.py` (`./play` is a thin wrapper) |
 
 ### Shared data model
 
@@ -192,8 +196,9 @@ DnLLM/
 
 ## Running
 
-1. LLM: `./scripts/llm-server.sh` (leave it running; without it the engine falls back to random rooms)
-2. Game: `cd ui && npm run dev` (the UI starts the Python engine itself)
+- **Play:** `./play` (or double-click `DnLLM.command`). It checks node 22+, npm, uv and llama-server, runs `npm install` in `ui/` on first run, reuses a llama-server already answering on the port or starts `scripts/llm-server.sh` itself (waiting for `/health`, with download progress on the very first run), then runs the UI. When the game exits (q or Ctrl+C) it stops the LLM server only if it started it.
+  - `./play --offline`: no LLM (random rooms, raw combat log as narration). `--seed N`: repeatable dungeon. `--port P`: LLM port. `--check`: only check the tools.
+- Manual: `./scripts/llm-server.sh` in one terminal, `cd ui && npm run dev` in another (the UI starts the Python engine itself).
 - Engine alone (debug): `uv run python -m engine.server`, then type action JSON lines. `DNLLM_SEED=1` makes it deterministic, and `DNLLM_LLM_URL` points it at another server.
 - Tests: `uv run pytest -q` (engine) and `cd ui && npm test` (UI logic). Typecheck UI: `cd ui && npm run typecheck`.
 - Engine debug log (e.g. every player move): `DNLLM_LOG_LEVEL=DEBUG`, written to `engine.log`.
